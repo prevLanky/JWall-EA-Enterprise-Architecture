@@ -1,0 +1,23 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run IAM Platform",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "-m",
+                "app.dev.server"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/iam-platform",
+                "env": {
+                    "IAM_AUTO_START_POSTGRES": "true",
+                    "IAM_PORT": "8002"
+                }
+            },
+            "isBackground": true,
+            "problemMatcher": []
+        }
+    ]
+}

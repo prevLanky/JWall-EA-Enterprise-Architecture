@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "IAM Platform",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "app.dev.server",
+            "args": [
+            ],
+            "cwd": "${workspaceFolder}/iam-platform",
+            "env": {
+                "IAM_AUTO_START_POSTGRES": "true",
+                "IAM_PORT": "8002"
+            },
+            "justMyCode": true,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "IAM Platform (debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "app.dev.server",
+            "args": [
+            ],
+            "cwd": "${workspaceFolder}/iam-platform",
+            "env": {
+                "IAM_AUTO_START_POSTGRES": "true",
+                "IAM_PORT": "8002"
+            },
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        }
+    ]
+}

@@ -1,0 +1,19 @@
+# Local Python and tooling files
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.venv/
+venv/
+
+# Local environment and secret files
+.env
+.env.*
+!.env.example
+*.secret
+*.secrets
+secrets/
+
+# Local database and runtime files
+*.sqlite
+*.db
+*.log

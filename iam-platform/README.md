@@ -1,0 +1,129 @@
+# IAM Platform
+
+This project is a small IAM platform demonstrating authentication, server-side sessions, RBAC,
+protected resources, and security audit flow.
+
+## Run locally
+
+PostgreSQL must be running and the target database must exist. Set `DATABASE_URL` when the
+default connection (`postgresql://postgres:postgres@localhost:5432/iam`) is not suitable.
+
+For local development, the VS Code run/debug configurations set `IAM_AUTO_START_POSTGRES=true`.
+When Docker Desktop is installed, the application will create or start a PostgreSQL 16 container
+named `iam-postgres` automatically. This is a development convenience only; production should
+manage PostgreSQL outside the application.
+
+Use the development launcher for the intended lifecycle. It resets the database once when you
+manually start the program, then enables Uvicorn reloads without resetting data when files change:
+
+```bash
+python -m app.dev.server
+```
+
+At startup the application connects to PostgreSQL with a five-second timeout, creates the local
+development schema, verifies all expected tables and columns, and bootstraps the Administrator role
+from environment-provided credentials. Set `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD`,
+and `BOOTSTRAP_ADMIN_EMAIL` before starting. The application fails closed when any bootstrap value
+is missing; it never starts a fresh database without an administrator.
+
+```powershell
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+The API is available at `http://127.0.0.1:8002`. The schema is initialized at startup using
+the SQL in `docs/schema.sql`; there is deliberately no migration framework yet. Docker Compose
+provides PostgreSQL only:
+
+```powershell
+Copy-Item .env.example .env
+# Edit .env and replace every CHANGE_ME value locally.
+docker compose up -d postgres
+python -m app.dev.server
+```
+
+`.env` is ignored by Git. Store real database and administrator values only in that local file or
+in your terminal environment. Do not put real values in `.env.example`, source files, Docker
+Compose files, tests, or documentation.
+
+The direct command `python -u app/main.py` also uses this same one-time-reset and non-destructive
+reload behavior. Use `uvicorn app.main:app` directly only when you do not want an automatic reset.
+Keep this terminal running while calling the endpoints. Open `http://127.0.0.1:8002/docs` for
+the interactive Swagger client, or check `http://127.0.0.1:8002/health` first. In Swagger, call
+`POST /auth/login`, copy the returned `session_id`, select **Authorize**, and paste it into the
+`X-Session-ID` field. Protected endpoints can then be called from the browser.
+
+Login with `POST /auth/login`. Send the returned opaque `session_id` in the `X-Session-ID`
+header for protected requests. `401` means the session is missing or invalid; `403` means the
+authenticated user lacks the required permission.
+
+To mount IAM into another FastAPI application, construct an `IamService` with the host's
+connection factory and include `create_router(service)`. For a standalone application with a
+custom startup action, use `create_app(service, startup_action)` from `app.application`.
+
+Shared status codes and error helpers are available from `app.core`; feature code should use
+those helpers instead of defining numeric HTTP statuses or framework-specific exceptions.
+
+## Current scope
+
+The API supports users, groups, roles, permissions, relationships, effective permissions,
+username/password authentication, server-side sessions, protected applications, bootstrap
+administration, and trusted audit events. Groups are identity data only and do not grant
+permissions in V1.
+
+## Tests
+
+```powershell
+pytest
+```
+
+The tests use a test-only in-memory SQL connection double so they validate IAM behavior without
+requiring a PostgreSQL server. Production code uses PostgreSQL through `psycopg`.
+
+
+
+# Docker setup
+In powershell:
+wsl --install
+dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+restart pc
+bcdedit /enum {current}
+if "OFF" do:
+bcdedit /set hypervisorlaunchtype auto
+wsl --status
+
+troubleshoot:
+Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform
+Get-Service vmcompute
+
+
+# Start Iam
+
+cd C:\repositories\enterprise_architect\iam-platform
+docker compose down -v
+docker compose up -d postgres
+python -u app/main.py
+
+python -u "C:\repositories\enterprise_architect\iam-platform\app\main.py"
+
+Oneliner:
+cd C:\repositories\enterprise_architect\iam-platform; $env:POSTGRES_USER="postgres"; $env:POSTGRES_PASSWORD="LocalPostgresPassword"; $env:POSTGRES_DB="iam"; $env:DATABASE_URL="postgresql://postgres:LocalPostgresPassword@localhost:5432/iam"; $env:BOOTSTRAP_ADMIN_USERNAME="admin"; $env:BOOTSTRAP_ADMIN_PASSWORD="LocalAdminPassword"; $env:BOOTSTRAP_ADMIN_EMAIL="admin@example.test"; $env:IAM_PORT="8002"; docker compose down -v; docker compose up -d --wait postgres; python -u app/main.py
+
+
+
+# Auth
+Start the server, then open:
+http://127.0.0.1:8002/docs
+In Swagger:
+Call POST /auth/login.
+Enter:
+{
+  "username": "admin",
+  "password": "admin"
+}
+Copy the returned session_id.
+Click Authorize at the top right.
+Paste the session ID into the X-Session-ID field.
+Click Authorize.
+Call protected endpoints such as:
