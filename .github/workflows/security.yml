@@ -207,13 +207,13 @@ jobs:
       - name: Run ZAP baseline scan against temporary API
         run: |
           set +e
-          docker run --rm --network host \
+          docker run --rm --network host --user root \
             -v "${{ github.workspace }}:/zap/wrk/:rw" \
             zaproxy/zap-stable:2.15.0 \
             zap-baseline.py \
             -t http://127.0.0.1:8002 \
-            -r /zap/wrk/zap.html \
-            -J /zap/wrk/zap.json
+            -r zap.html \
+            -J zap.json
           zap_status=$?
           set -e
           test -f zap.json
