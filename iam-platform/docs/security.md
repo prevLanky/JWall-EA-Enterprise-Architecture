@@ -44,6 +44,26 @@ revocation and expiration, `401` versus `403`, IDOR, privilege escalation, relat
 parameterized SQL, operation-before-authorization ordering, and audit integrity. The lightweight
 threat model is in `docs/threat-model.md`.
 
+The automated CI security pipeline is documented in `docs/devsecops-security-pipeline.md`.
+
+The executable security tests are documented by docstrings in `tests/unit/test_iam.py`:
+
+| Test area | Purpose |
+| --- | --- |
+| Opaque sessions and secret exclusion | Prove successful login creates a server-side bearer session without exposing the password or session in audit output. |
+| Generic failures and lockout | Prevent username enumeration and repeated password guessing. |
+| Revocation, expiry, and inactive users | Prove old, revoked, expired, and deactivated credentials cannot authenticate. |
+| Authorization and IDOR | Prove a valid session without the required permission cannot read a protected application. |
+| Administrator role protection | Preserve the bootstrap privilege boundary against rename and delete operations. |
+| Client privilege fields and audit write attempts | Prevent request payloads from granting roles or forging audit evidence. |
+| SQL metacharacters | Prove login input is bound as data rather than executable SQL. |
+| Malformed verifier and failure recovery | Prove corrupted password data fails closed and successful login clears stale lockout state. |
+| PostgreSQL constraints and cascades | Prove duplicate identities/relationships, dangling references, and inherited privilege edges are controlled by database integrity. |
+| Rejected mutation payloads | Prove unsupported fields and malformed UUIDs return validation errors without changing state. |
+
+Run the offline security suite with `python -m pytest tests/unit/test_iam.py -q`. PostgreSQL
+compatibility tests are opt-in and require the integration environment described in the README.
+
 ## Assumptions and limitations
 
 V1 assumes TLS is provided by the deployment boundary and that PostgreSQL credentials are supplied

@@ -1,1 +1,10 @@
 /.pytest_cache
+
+# Local security scanner output
+*.sarif
+*.cdx.json
+zap.html
+zap.json
+
+# Local prompt attachment
+/iam-platform/iam_v2.txt

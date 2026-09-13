@@ -80,6 +80,15 @@ pytest
 The tests use a test-only in-memory SQL connection double so they validate IAM behavior without
 requiring a PostgreSQL server. Production code uses PostgreSQL through `psycopg`.
 
+## CI security pipeline
+
+Pull requests and pushes to `main` or `dev` that change `iam-platform/` run the open-source security
+pipeline documented in `docs/devsecops-security-pipeline.md`. It runs Semgrep, Gitleaks, Trivy,
+Pytest, Syft, and an OWASP ZAP baseline scan against a temporary local API. Reports are uploaded
+as workflow artifacts; confirmed secrets, high/critical findings, failed tests, and incomplete
+scans block the security gate. Other systems in the monorepo can have their own path-scoped
+workflow without changing this project.
+
 
 
 # Docker setup

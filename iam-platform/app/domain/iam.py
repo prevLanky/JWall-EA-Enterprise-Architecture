@@ -55,12 +55,15 @@ class IamService:
 
     @staticmethod
     def verify_password(password: str, password_hash: str) -> bool:
-        if password_hash.startswith("$2") and bcrypt is not None:
-            return bool(bcrypt.checkpw(password.encode(), password_hash.encode()))
-        if password_hash.startswith("scrypt$"):
-            _, salt_hex, digest_hex = password_hash.split("$", 2)
-            candidate = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=16384, r=8, p=1)
-            return hmac.compare_digest(candidate.hex(), digest_hex)
+        try:
+            if password_hash.startswith("$2") and bcrypt is not None:
+                return bool(bcrypt.checkpw(password.encode(), password_hash.encode()))
+            if password_hash.startswith("scrypt$"):
+                _, salt_hex, digest_hex = password_hash.split("$", 2)
+                candidate = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=16384, r=8, p=1)
+                return hmac.compare_digest(candidate.hex(), digest_hex)
+        except (ValueError, TypeError):
+            return False
         return False
 
     @staticmethod
@@ -73,7 +76,7 @@ class IamService:
             display_name = require_text(display_name, "display_name")
             user_id = uuid4()
             try:
-                self._execute("INSERT INTO users VALUES (%s, %s, %s)", (user_id, username, display_name))
+                self._execute("INSERT INTO users (id, username, display_name) VALUES (%s, %s, %s)", (user_id, username, display_name))
             except Exception as error:
                 if "unique" in str(error).lower():
                     raise conflict("username already exists") from error
@@ -209,7 +212,8 @@ class IamService:
 
     def update_role(self, role_id: UUID, name: str | None = None, description: str | None = None, actor_id: UUID | None = None) -> dict[str, str]:
         self._require_reference("roles", role_id, "role")
-        if name == "Administrator":
+        existing = self._one("SELECT name FROM roles WHERE id = %s", (role_id,))
+        if (existing is not None and existing[0] == "Administrator") or name == "Administrator":
             raise forbidden("privileged role is protected")
         fields: list[str] = []
         values: list[SqlParameter] = []
@@ -417,6 +421,8 @@ class IamService:
         session_id = secrets.token_urlsafe(32)
         expires_at = self._now() + SESSION_LIFETIME
         self._execute("INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (%s, %s, %s, %s)", (session_id, row[0], self._now(), expires_at))
+        if row[4]:
+            self._execute("UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = %s WHERE id = %s", (self._now(), row[0]))
         self._audit(row[0], "LOGIN_SUCCESS", "user", row[0], "success")
         return {"session_id": session_id, "user_id": str(row[0]), "expires_at": expires_at.isoformat()}
 

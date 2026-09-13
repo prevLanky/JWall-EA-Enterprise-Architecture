@@ -120,12 +120,13 @@ def database_url() -> str:
 @contextmanager
 def connection() -> Generator[Connection, None, None]:
     try:
-        with psycopg.connect(database_url(), connect_timeout=5) as database_connection:
-            yield cast(Connection, database_connection)
+        database_connection = psycopg.connect(database_url(), connect_timeout=5)
     except psycopg.Error as error:
         raise RuntimeError(
             "PostgreSQL is unavailable. Start PostgreSQL or set DATABASE_URL to a reachable database."
         ) from error
+    with database_connection:
+        yield cast(Connection, database_connection)
 
 
 def initialize_schema() -> None:

@@ -1,0 +1,274 @@
+name: DevSecOps Security - iam-platform
+
+on:
+  pull_request:
+    paths:
+      - 'iam-platform/**'
+      - '.github/workflows/security.yml'
+  push:
+    branches: [main, dev]
+    paths:
+      - 'iam-platform/**'
+      - '.github/workflows/security.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.10'
+      - name: Install Semgrep Community Edition
+        run: python -m pip install --upgrade semgrep
+      - name: Scan Python source with Semgrep
+        working-directory: iam-platform
+        run: >-
+          semgrep scan
+          --config p/python
+          --config p/security-audit
+          --sarif
+          --output semgrep.sarif
+          --error
+      - name: Upload Semgrep report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: semgrep-report
+          path: iam-platform/semgrep.sarif
+          if-no-files-found: warn
+
+  secrets:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Scan repository with Gitleaks
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}:/repo"
+          zricethezav/gitleaks:v8.24.2
+          detect
+          --source=/repo/iam-platform
+          --report-format sarif
+          --report-path=/repo/gitleaks.sarif
+          --no-banner
+          --exit-code 1
+      - name: Upload Gitleaks report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+          if-no-files-found: warn
+
+  trivy:
+    name: SCA and IaC (Trivy)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4.2.2
+      - name: Scan dependencies and configuration
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: iam-platform
+          scanners: vuln,misconfig
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: '1'
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: trivy-report
+          path: trivy.sarif
+          if-no-files-found: warn
+
+  tests:
+    name: Application tests
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: iam
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iam"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:ci-postgres-password@localhost:5432/iam
+      BOOTSTRAP_ADMIN_USERNAME: ci-admin
+      BOOTSTRAP_ADMIN_PASSWORD: ci-admin-password
+      BOOTSTRAP_ADMIN_EMAIL: ci-admin@example.test
+      IAM_RUN_INTEGRATION_TESTS: 'true'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4.2.2
+      - name: Set up Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.10'
+      - name: Install application dependencies
+        working-directory: iam-platform
+        run: python -m pip install --requirement requirements.txt
+      - name: Run unit and PostgreSQL integration tests
+        working-directory: iam-platform
+        run: python -m pytest -q
+
+  sbom:
+    name: SBOM (Syft)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4.2.2
+      - name: Generate CycloneDX source and dependency SBOM
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}:/src"
+          anchore/syft:v1.18.1
+          dir:/src/iam-platform
+          -o cyclonedx-json=/src/sbom.cdx.json
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: cyclonedx-sbom
+          path: sbom.cdx.json
+          if-no-files-found: error
+
+  dast:
+    name: DAST (OWASP ZAP baseline)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: iam
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iam"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:ci-postgres-password@localhost:5432/iam
+      BOOTSTRAP_ADMIN_USERNAME: ci-admin
+      BOOTSTRAP_ADMIN_PASSWORD: ci-admin-password
+      BOOTSTRAP_ADMIN_EMAIL: ci-admin@example.test
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4.2.2
+      - name: Set up Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.10'
+      - name: Install application dependencies
+        working-directory: iam-platform
+        run: python -m pip install --requirement requirements.txt
+      - name: Start temporary API
+        working-directory: iam-platform
+        run: |
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8002 > /tmp/iam-api.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8002/health > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/iam-api.log
+          exit 1
+      - name: Run ZAP baseline scan against temporary API
+        run: |
+          set +e
+          docker run --rm --network host \
+            -v "${{ github.workspace }}:/zap/wrk/:rw" \
+            zaproxy/zap-stable:2.15.0 \
+            zap-baseline.py \
+            -t http://127.0.0.1:8002 \
+            -r /zap/wrk/zap.html \
+            -J /zap/wrk/zap.json
+          zap_status=$?
+          set -e
+          test -f zap.json
+          python - <<'PY'
+          import json
+          import sys
+
+          with open('zap.json', encoding='utf-8') as report_file:
+              report = json.load(report_file)
+
+          high_or_critical = []
+          for site in report.get('site', []):
+              for alert in site.get('alerts', []):
+                  if alert.get('riskcode') in {'3', '4'}:
+                      high_or_critical.append(alert.get('alert', 'unnamed alert'))
+
+          if high_or_critical:
+              print('High or critical ZAP alerts:')
+              print('\n'.join(sorted(set(high_or_critical))))
+              sys.exit(1)
+          print(f'ZAP completed with scanner status {zap_status}; no high or critical alerts found.')
+          PY
+      - name: Upload ZAP reports
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: zap-report
+          path: |
+            zap.html
+            zap.json
+          if-no-files-found: warn
+
+  security-gate:
+    name: Security gate
+    if: always()
+    needs: [sast, secrets, trivy, tests, sbom, dast]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce scanner and test results
+        env:
+          SAST_RESULT: ${{ needs.sast.result }}
+          SECRETS_RESULT: ${{ needs.secrets.result }}
+          TRIVY_RESULT: ${{ needs.trivy.result }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+          SBOM_RESULT: ${{ needs.sbom.result }}
+          DAST_RESULT: ${{ needs.dast.result }}
+        run: |
+          failed=0
+          for result in "$SAST_RESULT" "$SECRETS_RESULT" "$TRIVY_RESULT" "$TESTS_RESULT" "$SBOM_RESULT" "$DAST_RESULT"; do
+            if [ "$result" != success ]; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "Security gate failed. Review the scanner artifacts from the failed job(s)."
+            exit 1
+          fi
+          echo "Security gate passed."
