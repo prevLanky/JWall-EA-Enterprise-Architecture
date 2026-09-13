@@ -1,0 +1,462 @@
+You are implementing an automated DevSecOps security pipeline for this repository.
+
+## Goal
+
+Build a practical CI/CD security pipeline using open-source/free security tools.
+
+The objective is to automatically identify security vulnerabilities without requiring me to write individual security tests myself.
+
+Use established security scanners and their existing rules/databases rather than creating custom vulnerability tests.
+
+The target security controls are:
+
+* SAST → Semgrep Community Edition
+* Secret scanning → Gitleaks
+* SCA/dependency scanning → Trivy
+* IaC/configuration scanning → Trivy
+* Container scanning → Trivy
+* SBOM generation → Syft
+* DAST → OWASP ZAP
+* Security gates → GitHub Actions
+
+Do not introduce commercial SaaS dependencies unless absolutely necessary. If a commercial feature is required for something, stop and explain why before implementing it.
+
+---
+
+# IMPORTANT: Work incrementally
+
+Do NOT immediately implement everything.
+
+First inspect the repository thoroughly.
+
+Check:
+
+* AGENTS.md
+* README/documentation
+* project structure
+* programming languages
+* frameworks
+* package managers
+* dependencies
+* existing tests
+* Dockerfiles
+* docker-compose files
+* infrastructure-as-code
+* GitHub Actions
+* existing CI/CD
+* existing security tooling
+* application startup process
+* exposed HTTP/API endpoints
+* build process
+
+Determine which security controls actually apply to this repository.
+
+Do not create infrastructure or configuration merely to demonstrate a tool.
+
+---
+
+# Phase 1 — Analysis
+
+Before changing files, provide a concise implementation plan.
+
+Identify:
+
+1. Which security tools apply
+2. Which tools are not applicable and why
+3. Which GitHub Actions workflows need to be created/modified
+4. What security gates should exist
+5. Whether DAST can realistically be performed
+6. Whether a temporary test environment is required
+7. Any limitations or risks
+
+Do not make changes yet.
+
+After presenting the plan, proceed with implementation unless a major architectural/security decision requires my approval.
+
+---
+
+# Phase 2 — SAST
+
+Implement Semgrep Community Edition.
+
+Use existing Semgrep security rules.
+
+Do NOT create a large custom ruleset.
+
+The scan should detect relevant security issues such as:
+
+* injection
+* insecure API usage
+* dangerous functions
+* authentication/authorization mistakes
+* common OWASP vulnerabilities
+* security anti-patterns
+
+Use rules appropriate for the actual languages/frameworks in this repository.
+
+Generate CI-readable results.
+
+Configure sensible severity handling.
+
+---
+
+# Phase 3 — Secret scanning
+
+Implement Gitleaks.
+
+Scan the repository for:
+
+* API keys
+* access tokens
+* passwords
+* private keys
+* credentials
+* other high-confidence secrets
+
+Use Gitleaks' existing rules.
+
+Do not print discovered secrets into CI logs.
+
+A confirmed secret finding should fail the appropriate security job.
+
+Do not create unnecessary custom secret patterns.
+
+---
+
+# Phase 4 — Dependency/SCA scanning
+
+Implement Trivy dependency scanning.
+
+Scan the actual dependency ecosystem used by the repository.
+
+Detect:
+
+* known CVEs
+* vulnerable dependencies
+* vulnerable packages
+* severity levels
+
+Use Trivy's vulnerability databases.
+
+Do not manually maintain CVE lists.
+
+Configure an initial security policy where:
+
+* Critical findings → fail
+* High findings → fail when appropriate
+* Medium/Low → report unless there is a strong reason to block
+
+Adapt this based on the actual project and explain the chosen policy.
+
+---
+
+# Phase 5 — IaC/configuration scanning
+
+If applicable, use Trivy to scan:
+
+* Dockerfiles
+* Kubernetes manifests
+* Terraform
+* cloud configuration
+* other supported infrastructure/configuration
+
+Only scan technologies actually present in the repository.
+
+Do not add infrastructure simply for the sake of scanning it.
+
+---
+
+# Phase 6 — Container security
+
+If the application uses Docker:
+
+1. Build the Docker image in CI.
+2. Scan the image using Trivy.
+3. Fail the security gate according to the documented severity policy.
+4. Only allow the pipeline to proceed after the required security checks pass.
+
+Do not use production credentials.
+
+Do not push an image to production before security checks have completed.
+
+If Docker is not applicable, skip this phase and document why.
+
+---
+
+# Phase 7 — SBOM
+
+If practical, generate an SBOM using Syft.
+
+Prefer:
+
+* SPDX
+* CycloneDX
+
+The SBOM should represent the actual software artifact being built.
+
+Upload it as a GitHub Actions artifact.
+
+Do not commit generated SBOM files to the repository unless the project already follows that convention.
+
+---
+
+# Phase 8 — DAST
+
+If this repository contains a web application or HTTP API, implement OWASP ZAP.
+
+The intended flow is:
+
+Build application
+↓
+Start temporary test environment
+↓
+Wait for application health/readiness
+↓
+Run OWASP ZAP
+↓
+Collect findings
+↓
+Apply security gate
+↓
+Stop temporary environment
+
+Prefer ZAP Baseline Scan for the initial implementation.
+
+Do NOT scan production.
+
+Do NOT use production credentials.
+
+Do NOT expose the temporary application publicly unless absolutely necessary.
+
+If the application requires authentication for meaningful DAST, document the limitation rather than creating an insecure authentication workaround.
+
+If DAST is not applicable, document why.
+
+---
+
+# Phase 9 — Security gate
+
+Create a clear security gate that evaluates the scanner results.
+
+Use sensible initial thresholds.
+
+Suggested policy:
+
+BLOCK:
+
+* confirmed secrets
+* Critical vulnerabilities
+* High vulnerabilities with high confidence and clear applicability
+
+REPORT:
+
+* Medium
+* Low
+* Informational
+
+Do not blindly fail the pipeline on every scanner warning.
+
+Document the policy.
+
+The purpose is to create a realistic DevSecOps security control rather than simply making CI fail constantly.
+
+---
+
+# Phase 10 — GitHub Actions security
+
+If GitHub Actions is used:
+
+Use least-privilege permissions.
+
+Avoid:
+
+```yaml
+permissions: write-all
+```
+
+Do not use unnecessary write permissions.
+
+Prefer well-maintained official actions.
+
+Avoid floating action references such as:
+
+```yaml
+uses: example/action@main
+```
+
+Prefer versioned references.
+
+Do not hard-code secrets.
+
+Do not expose secrets through logs.
+
+Do not execute arbitrary downloaded scripts unless absolutely necessary.
+
+Treat the CI/CD pipeline itself as security-sensitive infrastructure.
+
+---
+
+# Phase 11 — Reports
+
+Where practical, upload scanner results as GitHub Actions artifacts.
+
+Useful artifacts include:
+
+* Semgrep report
+* Gitleaks report
+* Trivy report
+* ZAP report
+* SBOM
+
+Do not overwhelm normal CI logs with huge scanner outputs.
+
+Make failures understandable.
+
+A developer should be able to determine:
+
+* what tool found the issue
+* severity
+* affected file/package/endpoint
+* why the pipeline failed
+* how to investigate it
+
+---
+
+# Phase 12 — Documentation
+
+Update the repository documentation.
+
+Create a clear section explaining the security pipeline.
+
+Include a table similar to:
+
+| Security control | Tool           | Target              | Stage |
+| ---------------- | -------------- | ------------------- | ----- |
+| SAST             | Semgrep        | Source code         | PR    |
+| Secrets          | Gitleaks       | Repository          | PR    |
+| SCA              | Trivy          | Dependencies        | PR    |
+| IaC              | Trivy          | Infrastructure      | PR    |
+| Container        | Trivy          | Docker image        | Build |
+| SBOM             | Syft           | Software artifact   | Build |
+| DAST             | OWASP ZAP      | Running application | Test  |
+| Security Gate    | GitHub Actions | Findings            | Final |
+
+Adapt this to what is actually implemented.
+
+Also document:
+
+* why each tool was selected
+* what each scanner detects
+* when scans execute
+* what causes the pipeline to fail
+* how to run relevant scans locally
+* where reports are stored
+* known limitations
+* how vulnerabilities should be remediated
+
+---
+
+# Phase 13 — Validation
+
+After implementation:
+
+1. Validate all workflow YAML.
+2. Run applicable tools locally where possible.
+3. Run the application's existing tests.
+4. Check that the CI pipeline does not break normal development.
+5. Check that scanner results are actually generated.
+6. Verify security gates work.
+7. Verify reports are uploaded.
+8. Verify secrets cannot accidentally appear in logs.
+9. Verify DAST only targets the temporary test environment.
+10. Review all changed files for unnecessary complexity.
+
+Where possible, deliberately introduce a harmless test vulnerability/secret in a temporary local branch or test fixture to verify that the appropriate scanner detects it.
+
+Do NOT commit real secrets.
+
+Remove any temporary test vulnerabilities before completing the task.
+
+---
+
+# Important engineering principles
+
+Keep the implementation simple.
+
+Do NOT:
+
+* rewrite application architecture
+* modify unrelated application functionality
+* add unnecessary runtime dependencies
+* create hundreds of custom security tests
+* manually maintain vulnerability databases
+* manually maintain large custom security rules
+* disable existing tests
+* weaken existing security controls
+* ignore scanner findings merely to make CI pass
+* scan production with ZAP
+* hard-code credentials
+* commit secrets
+* add unnecessary infrastructure
+* add commercial tooling without approval
+* over-engineer the CI pipeline
+
+The objective is:
+
+> A clean, maintainable, open-source DevSecOps security pipeline integrated into the existing application lifecycle.
+
+---
+
+# Final response
+
+When finished, provide:
+
+## Implementation summary
+
+What was implemented and why.
+
+## Tools
+
+List each security tool and what it scans.
+
+## CI/CD flow
+
+Show the final pipeline as a simple diagram:
+
+PR
+↓
+SAST / Secrets / SCA / IaC
+↓
+Build
+↓
+Container scan
+↓
+SBOM
+↓
+Temporary environment
+↓
+DAST
+↓
+Security Gate
+↓
+Deploy/continue
+
+Adapt the diagram to the actual implementation.
+
+## Security policy
+
+Explain exactly which findings block the pipeline.
+
+## Files changed
+
+List every file created or modified.
+
+## Validation
+
+Explain what you tested and the results.
+
+## Limitations
+
+Be explicit about anything that could not be fully automated or tested.
+
+Do not claim that a security control works unless you actually verified it.
