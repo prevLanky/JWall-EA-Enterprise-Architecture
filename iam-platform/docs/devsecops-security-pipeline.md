@@ -3,8 +3,9 @@
 The repository uses the GitHub Actions workflow at the repository-root path
 `.github/workflows/security.yml`. The application itself lives in the `iam-platform/` subdirectory.
 The workflow is named `DevSecOps Security - iam-platform`, and its path filters cause it to run
-on pull requests and on pushes to `main` or `dev` when `iam-platform/**` or this workflow changes.
-It uses temporary CI credentials and
+on pull requests, on pushes to `main` or `dev`, and on manual `workflow_dispatch` runs. Pull
+request and push path filters require `iam-platform/**` or this workflow to change. It uses
+temporary CI credentials and
 temporary PostgreSQL services; it never targets production systems.
 
 This document explains what happens from trigger to gate, why each tool is present, what files and
