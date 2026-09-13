@@ -95,6 +95,16 @@ jobs:
             --severity CRITICAL,HIGH \
             --ignore-unfixed=false \
             --exit-code 1
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          scan-type: fs
+          scan-ref: iam-platform
+          scanners: vuln,misconfig
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: '1'
       - name: Upload Trivy report
         if: always()
         uses: actions/upload-artifact@v4.6.2
@@ -211,9 +221,13 @@ jobs:
           docker run --rm --user 0 --network host \
             -v "${{ github.workspace }}:/zap/wrk:rw" \
             -w /zap/wrk \
+          docker run --rm --network host --user root \
+            -v "${{ github.workspace }}:/zap/wrk/:rw" \
             zaproxy/zap-stable:2.15.0 \
             zap-baseline.py \
             -t http://127.0.0.1:8002 \
+            -r zap.html \
+            -J zap.json
             -r zap.html \
             -J zap.json
           zap_status=$?
