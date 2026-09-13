@@ -114,7 +114,8 @@ this job.
 
 ### 3. Trivy dependency and configuration scanning
 
-The `trivy` job uses `aquasecurity/trivy-action@0.28.0`:
+The `trivy` job uses the pinned `aquasec/trivy:0.59.1` container directly. Using the container
+avoids depending on a separate setup action and keeps the scanner version explicit:
 
 1. Checks out the full repository.
 2. Uses Trivy filesystem mode with both `vuln` and `misconfig` scanners.
@@ -123,7 +124,8 @@ The `trivy` job uses `aquasecurity/trivy-action@0.28.0`:
     Compose file.
 4. Includes fixed and unfixed results because `ignore-unfixed` is false.
 5. Requests only `HIGH` and `CRITICAL` results for the blocking scan.
-6. Writes a SARIF report to `trivy.sarif` and uploads it as `trivy-report`.
+6. Writes a SARIF report to the repository workspace as `trivy.sarif` and uploads it as
+    `trivy-report`.
 
 Trivy's vulnerability and misconfiguration databases provide the findings. The repository does
 not maintain a hand-written CVE list.
@@ -170,8 +172,10 @@ The `dast` job creates a temporary HTTP test environment:
     log and fails before scanning.
 5. The pinned `zaproxy/zap-stable:2.15.0` container scans only
     `http://127.0.0.1:8002` through Docker host networking.
-6. ZAP writes `zap.html` and `zap.json` into the runner workspace.
-7. The job parses the JSON report and fails if any alert has ZAP risk code `3` (High) or `4`
+6. The container runs as root with `/zap/wrk` as its working directory so the mounted GitHub
+    workspace is writable. ZAP writes `zap.html` and `zap.json` into that workspace.
+7. The job preserves ZAP's scanner exit status separately from the report policy, parses the JSON
+    report, and fails if any alert has ZAP risk code `3` (High) or `4`
     (Critical). Lower-risk findings remain available in the report.
 8. Both reports are uploaded as `zap-report`, including when the scan or gate fails.
 

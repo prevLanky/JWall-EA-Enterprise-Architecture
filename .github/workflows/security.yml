@@ -84,16 +84,17 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4.2.2
       - name: Scan dependencies and configuration
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: iam-platform
-          scanners: vuln,misconfig
-          format: sarif
-          output: trivy.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: false
-          exit-code: '1'
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/repo" \
+            aquasec/trivy:0.59.1 \
+            fs /repo/iam-platform \
+            --scanners vuln,misconfig \
+            --format sarif \
+            --output /repo/trivy.sarif \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed=false \
+            --exit-code 1
       - name: Upload Trivy report
         if: always()
         uses: actions/upload-artifact@v4.6.2
@@ -207,18 +208,20 @@ jobs:
       - name: Run ZAP baseline scan against temporary API
         run: |
           set +e
-          docker run --rm --network host \
-            -v "${{ github.workspace }}:/zap/wrk/:rw" \
+          docker run --rm --user 0 --network host \
+            -v "${{ github.workspace }}:/zap/wrk:rw" \
+            -w /zap/wrk \
             zaproxy/zap-stable:2.15.0 \
             zap-baseline.py \
             -t http://127.0.0.1:8002 \
-            -r /zap/wrk/zap.html \
-            -J /zap/wrk/zap.json
+            -r zap.html \
+            -J zap.json
           zap_status=$?
           set -e
           test -f zap.json
-          python - <<'PY'
+          ZAP_STATUS="$zap_status" python - <<'PY'
           import json
+          import os
           import sys
 
           with open('zap.json', encoding='utf-8') as report_file:
@@ -234,6 +237,7 @@ jobs:
               print('High or critical ZAP alerts:')
               print('\n'.join(sorted(set(high_or_critical))))
               sys.exit(1)
+          zap_status = os.environ['ZAP_STATUS']
           print(f'ZAP completed with scanner status {zap_status}; no high or critical alerts found.')
           PY
       - name: Upload ZAP reports
