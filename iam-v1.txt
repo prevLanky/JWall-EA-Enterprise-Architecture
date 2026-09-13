@@ -1,35 +1,47 @@
-IAM V1 — Implementation Specification
+# IAM V1 — Implementation Specification
 
 Build a small but complete IAM platform as a learning project focused on understanding identity, authentication, authorization, security controls, and secure system design.
 
 The goal is not merely to build CRUD APIs. The final V1 must demonstrate a complete secure request flow:
 
 Request
+```text
   ↓
 Authentication / Session Validation
+```
+```text
   ↓
 Identify User
+```
+```text
   ↓
-Authorization
+### Authorization
+```
+```text
   ↓
 Protected Resource / Operation
+```
+```text
   ↓
 Audit Security-Relevant Result
+```
+```text
   ↓
 Response
+```
 
 Security controls must be implemented as part of the application control flow rather than added as an afterthought.
 
-1. Technology
+## 1. Technology
 
 Use:
 
-Python
-FastAPI
-Uvicorn
-PostgreSQL
-Docker Compose
-pytest
+- Python
+- FastAPI
+- Uvicorn
+- PostgreSQL
+- Docker Compose
+- pytest
 
 Docker Compose should only be used for PostgreSQL.
 
@@ -37,14 +49,14 @@ The application itself runs directly with Python.
 
 Do not introduce unnecessary frameworks, abstractions, dependencies, microservices, or infrastructure.
 
-2. V1 Scope
+## 2. V1 Scope
 
 V1 must include:
 
-Users
-Groups
-Roles
-Permissions
+### Users
+### Groups
+### Roles
+### Permissions
 User/group relationships
 User/role relationships
 Role/permission relationships
@@ -68,10 +80,11 @@ Local development environment
 
 Do not implement MFA, OIDC, LDAP, Kerberos, WebAuthn, SCIM, JIT/PIM, Vault, PKI, workload identity, etc. in V1.
 
-3. Core Data Model
+## 3. Core Data Model
 
 Use these relationships:
 
+```text
 User ───── Group       (many-to-many)
 User ───── Role        (many-to-many)
 Role ───── Permission  (many-to-many)
@@ -79,36 +92,47 @@ User ───── Session     (one-to-many)
 User ───── AuditEvent  (one-to-many)
 Application ── AuditEvent
 
+```
 Important:
 
 Groups do not directly grant permissions in V1.
 
 Authorization follows:
 
-User
+### User
+```text
  ↓
 User Roles
+```
+```text
  ↓
-Role
+### Role
+```
+```text
  ↓
 Role Permissions
+```
+```text
  ↓
-Permission
+### Permission
+```
+```text
  ↓
 ALLOW / DENY
+```
 
 Groups exist as identity/group-management functionality and leave room for future group-to-role mappings.
 
-4. Database Tables
+## 4. Database Tables
 
 Create:
 
-users
-groups
+- users
+- groups
 user_groups
-roles
+- roles
 user_roles
-permissions
+- permissions
 role_permissions
 sessions
 applications
@@ -118,43 +142,43 @@ Use foreign keys and appropriate uniqueness constraints.
 
 Required uniqueness:
 
-users.username
-users.email
-groups.name
-roles.name
-(permissions.resource, permissions.action)
-(user_groups.user_id, user_groups.group_id)
-(user_roles.user_id, user_roles.role_id)
-(role_permissions.role_id, role_permissions.permission_id)
-5. Entities
-User
-id
-username
-email
-password_hash
-is_active
-created_at
-updated_at
+- `users.username`
+- `users.email`
+- `groups.name`
+- `roles.name`
+- `(permissions.resource, permissions.action)`
+- `(user_groups.user_id, user_groups.group_id)`
+- `(user_roles.user_id, user_roles.role_id)`
+- `(role_permissions.role_id, role_permissions.permission_id)`
+## 5. Entities
+### User
+- `id`
+- `username`
+- `email`
+- `password_hash`
+- `is_active`
+- `created_at`
+- `updated_at`
 
 Never expose password_hash through the API.
 
-Group
-id
-name
-description
-created_at
-updated_at
-Role
-id
-name
-description
-created_at
-updated_at
-Permission
-id
-resource
-action
-created_at
+### Group
+- `id`
+- `name`
+- `description`
+- `created_at`
+- `updated_at`
+### Role
+- `id`
+- `name`
+- `description`
+- `created_at`
+- `updated_at`
+### Permission
+- `id`
+- `resource`
+- `action`
+- `created_at`
 
 Examples:
 
@@ -164,43 +188,43 @@ application:update
 application:delete
 application:deploy
 iam:manage
-Session
-id
-user_id
-created_at
-expires_at
-revoked_at
+### Session
+- `id`
+- `user_id`
+- `created_at`
+- `expires_at`
+- `revoked_at`
 
 The session identifier must be cryptographically random.
 
 Do not derive it from:
 
 user ID
-username
-timestamp
-email
+- `username`
+- `timestamp`
+- `email`
 incremental values
 
 Do not use JWTs in V1 unless there is a concrete architectural reason.
 
-Application
-id
-name
-description
-created_at
-updated_at
+### Application
+- `id`
+- `name`
+- `description`
+- `created_at`
+- `updated_at`
 
 This exists primarily to demonstrate authorization against a protected resource.
 
-AuditEvent
-id
-timestamp
-event_type
-user_id
-target_type
-target_id
-result
-metadata
+### AuditEvent
+- `id`
+- `timestamp`
+- `event_type`
+- `user_id`
+- `target_type`
+- `target_id`
+- `result`
+- `metadata`
 
 Never log:
 
@@ -210,7 +234,7 @@ session IDs
 secrets
 authentication tokens
 sensitive credentials
-6. API Endpoints
+## 6. API Endpoints
 
 Top-level API areas:
 
@@ -221,109 +245,135 @@ Top-level API areas:
 /permissions
 /applications
 /audit
-Authentication
-POST /auth/login
-POST /auth/logout
-GET  /auth/session
-POST /auth/login
+### Authentication
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET  /auth/session`
+- `POST /auth/login`
 
 Public endpoint.
 
 Flow:
 
 Receive credentials
+```text
     ↓
 Validate request
+```
+```text
     ↓
 Find user
+```
+```text
     ↓
 Verify password hash
+```
+```text
     ↓
 Check account is active
+```
+```text
     ↓
 Apply login-failure/throttling controls
+```
+```text
     ↓
 Create server-side session
+```
+```text
     ↓
 Audit LOGIN_SUCCESS
+```
+```text
     ↓
 Return authenticated response
+```
 
 For failed authentication:
 
 Receive credentials
+```text
     ↓
 Validate request
+```
+```text
     ↓
 Attempt authentication
+```
+```text
     ↓
 Apply failure protection
+```
+```text
     ↓
 Audit LOGIN_FAILURE
+```
+```text
     ↓
 Return generic authentication failure
+```
 
 Do not reveal whether the username exists.
 
 Use appropriate HTTP status codes such as 401 and 429.
 
-7. Users
-POST   /users
-GET    /users
-GET    /users/{user_id}
-PATCH  /users/{user_id}
-DELETE /users/{user_id}
+## 7. Users
+- `POST   /users`
+- `GET    /users`
+- `GET    /users/{user_id}`
+- `PATCH  /users/{user_id}`
+- `DELETE /users/{user_id}`
 
 These are administrative operations and must require authentication and appropriate authorization.
 
 The user must not be able to modify their own privileges simply by modifying their own user object.
 
-8. Groups
-POST   /groups
-GET    /groups
-GET    /groups/{group_id}
-PATCH  /groups/{group_id}
-DELETE /groups/{group_id}
+## 8. Groups
+- `POST   /groups`
+- `GET    /groups`
+- `GET    /groups/{group_id}`
+- `PATCH  /groups/{group_id}`
+- `DELETE /groups/{group_id}`
 
 User/group membership:
 
-POST   /users/{user_id}/groups/{group_id}
-DELETE /users/{user_id}/groups/{group_id}
-GET    /users/{user_id}/groups
+- `POST   /users/{user_id}/groups/{group_id}`
+- `DELETE /users/{user_id}/groups/{group_id}`
+- `GET    /users/{user_id}/groups`
 
 These are administrative operations.
 
-9. Roles
-POST   /roles
-GET    /roles
-GET    /roles/{role_id}
-PATCH  /roles/{role_id}
-DELETE /roles/{role_id}
+## 9. Roles
+- `POST   /roles`
+- `GET    /roles`
+- `GET    /roles/{role_id}`
+- `PATCH  /roles/{role_id}`
+- `DELETE /roles/{role_id}`
 
 User/role assignment:
 
-POST   /users/{user_id}/roles/{role_id}
-DELETE /users/{user_id}/roles/{role_id}
-GET    /users/{user_id}/roles
+- `POST   /users/{user_id}/roles/{role_id}`
+- `DELETE /users/{user_id}/roles/{role_id}`
+- `GET    /users/{user_id}/roles`
 
 These operations must be protected because role assignment directly affects authorization.
 
-10. Permissions
-POST   /permissions
-GET    /permissions
-GET    /permissions/{permission_id}
-DELETE /permissions/{permission_id}
+## 10. Permissions
+- `POST   /permissions`
+- `GET    /permissions`
+- `GET    /permissions/{permission_id}`
+- `DELETE /permissions/{permission_id}`
 
 Role/permission assignment:
 
-POST   /roles/{role_id}/permissions/{permission_id}
-DELETE /roles/{role_id}/permissions/{permission_id}
-GET    /roles/{role_id}/permissions
+- `POST   /roles/{role_id}/permissions/{permission_id}`
+- `DELETE /roles/{role_id}/permissions/{permission_id}`
+- `GET    /roles/{role_id}/permissions`
 
 Permission administration must be protected.
 
-11. Effective Permissions
-GET /users/{user_id}/permissions
+## 11. Effective Permissions
+- `GET /users/{user_id}/permissions`
 
 This calculates the user's effective permissions.
 
@@ -331,33 +381,39 @@ The endpoint must not modify permissions.
 
 Effective permissions are derived from:
 
-User
+### User
+```text
  ↓
-Roles
+### Roles
+```
+```text
  ↓
 Role Permissions
+```
+```text
  ↓
-Effective Permissions
-12. Protected Application Resource
+### Effective Permissions
+```
+## 12. Protected Application Resource
 
 Implement:
 
-POST   /applications
-GET    /applications
-GET    /applications/{application_id}
-PATCH  /applications/{application_id}
-DELETE /applications/{application_id}
-POST   /applications/{application_id}/deploy
+- `POST   /applications`
+- `GET    /applications`
+- `GET    /applications/{application_id}`
+- `PATCH  /applications/{application_id}`
+- `DELETE /applications/{application_id}`
+- `POST   /applications/{application_id}/deploy`
 
 Required permissions:
 
-POST   /applications                  → application:create
-GET    /applications                  → application:read
-GET    /applications/{id}             → application:read
-PATCH  /applications/{id}             → application:update
-DELETE /applications/{id}             → application:delete
-POST   /applications/{id}/deploy      → application:deploy
-13. IAM Administration
+- `POST   /applications                  → application:create`
+- `GET    /applications                  → application:read`
+- `GET    /applications/{id}             → application:read`
+- `PATCH  /applications/{id}             → application:update`
+- `DELETE /applications/{id}             → application:delete`
+- `POST   /applications/{id}/deploy      → application:deploy`
+## 13. IAM Administration
 
 Create:
 
@@ -366,8 +422,10 @@ iam:manage
 Create an administrator role:
 
 Administrator
+```text
     ↓
 iam:manage
+```
 
 All IAM management operations must require:
 
@@ -386,56 +444,82 @@ modify permissions of privileged roles
 create an equivalent privileged role
 bypass authorization by manipulating IDs
 modify IAM configuration without authorization
-14. Security Control Flow
+## 14. Security Control Flow
 
 This is a critical architectural requirement.
 
 Every protected request should conceptually follow:
 
 HTTP Request
+```text
     ↓
 Request validation
+```
+```text
     ↓
 Authentication / session validation
+```
+```text
     ↓
 Identify authenticated user
+```
+```text
     ↓
 Authorization decision
+```
+```text
     ↓
 Protected operation
+```
+```text
     ↓
 Audit security-relevant result
+```
+```text
     ↓
 HTTP Response
+```
 
 Do not perform the protected operation before authorization.
 
 For example:
 
 Request to PATCH /applications/123
+```text
         ↓
 Validate session
+```
+```text
         ↓
 Identify user
+```
+```text
         ↓
 Check application:update
+```
+```text
         ↓
 IF denied
+```
+```text
     → audit authorization denial
     → return 403
         ↓
 IF allowed
+```
+```text
     → perform update
     → audit operation
     → return response
 
+```
 The authorization check must happen before access to or modification of the protected resource.
 
-15. Authentication vs Authorization
+## 15. Authentication vs Authorization
 
 Keep these concepts separate.
 
-Authentication
+### Authentication
 
 Answers:
 
@@ -443,8 +527,10 @@ Who are you?
 
 Example:
 
+```text
 Session → User 42
-Authorization
+### Authorization
+```
 
 Answers:
 
@@ -453,18 +539,26 @@ Are you allowed to perform this action?
 Example:
 
 User 42
+```text
  ↓
-Roles
+### Roles
+```
+```text
  ↓
-Permissions
+### Permissions
+```
+```text
  ↓
 application:deploy
+```
+```text
  ↓
 ALLOW
+```
 
 Do not combine authentication and authorization into one conceptual mechanism.
 
-16. Authorization Function
+## 16. Authorization Function
 
 Implement centralized authorization logic, conceptually:
 
@@ -482,7 +576,7 @@ Do not duplicate authorization logic independently in every endpoint.
 
 However, do not build an unnecessary generic policy framework in V1.
 
-17. Audit Logging Control Flow
+## 17. Audit Logging Control Flow
 
 Audit logging is a security control and security evidence mechanism, not ordinary application debugging.
 
@@ -490,118 +584,176 @@ It must be integrated into the request flow.
 
 The application should distinguish between:
 
-Application/debug logging
+- Application/debug logging
 
 and:
 
-Security audit logging
+- Security audit logging
 
 Security audit events should be generated by trusted server-side code.
 
 Users must never be able to create, modify, or delete audit events through the normal API.
 
-18. Where Audit Logging Happens
+## 18. Where Audit Logging Happens
 
 Audit security-relevant events at the point where the security decision or security-relevant state change actually occurs.
 
 For an authorization failure:
 
 Request
+```text
  ↓
 Authenticate
+```
+```text
  ↓
 Authorize
+```
+```text
  ↓
 DENY
+```
+```text
  ↓
 AUDIT AUTHORIZATION_DENIED
+```
+```text
  ↓
 403
+```
 
 For an authorized operation:
 
 Request
+```text
  ↓
 Authenticate
+```
+```text
  ↓
 Authorize
+```
+```text
  ↓
 ALLOW
+```
+```text
  ↓
 Perform operation
+```
+```text
  ↓
 AUDIT operation result
+```
+```text
  ↓
 Response
+```
 
 For state-changing operations, the audit event should represent the actual result of the operation.
 
 For example:
 
 User role assignment request
+```text
         ↓
 Authenticate
+```
+```text
         ↓
 Authorize
+```
+```text
         ↓
 Perform role assignment
+```
+```text
         ↓
 If successful → ROLE_ASSIGNED
 If failed     → appropriate failure event/error
 
+```
 Do not log a successful state-changing event before the operation has actually succeeded.
 
-19. Authentication Audit Flow
+## 19. Authentication Audit Flow
 
 Authentication events are logged around the authentication decision.
 
 Successful login:
 
 Credentials
+```text
  ↓
 Verify
+```
+```text
  ↓
 Success
+```
+```text
  ↓
 Create session
+```
+```text
  ↓
-LOGIN_SUCCESS
+- `LOGIN_SUCCESS`
+```
 
 Failed login:
 
 Credentials
+```text
  ↓
 Verify
+```
+```text
  ↓
 Failure
+```
+```text
  ↓
-LOGIN_FAILURE
+- `LOGIN_FAILURE`
+```
+```text
  ↓
 Return generic failure
+```
 
 Repeated failures should also trigger the appropriate security control, such as throttling or temporary blocking.
 
 The audit record should not contain the password.
 
-20. Authorization Audit Flow
+## 20. Authorization Audit Flow
 
 Authorization decisions should be auditable.
 
 Example:
 
 User 42
+```text
  ↓
-GET /applications/123
+- `GET /applications/123`
+```
+```text
  ↓
 Session valid
+```
+```text
  ↓
 Check application:read
+```
+```text
  ↓
 DENY
+```
+```text
  ↓
 AUDIT AUTHORIZATION_DENIED
+```
+```text
  ↓
 403
+```
 
 Successful authorization can also be audited where appropriate, particularly for security-sensitive operations.
 
@@ -613,45 +765,45 @@ authorization failures
 administrative actions
 security-sensitive operations
 state-changing operations
-21. Required Audit Events
+## 21. Required Audit Events
 
 Implement at least:
 
-LOGIN_SUCCESS
-LOGIN_FAILURE
-LOGOUT
-SESSION_REVOKED
+- `LOGIN_SUCCESS`
+- `LOGIN_FAILURE`
+- `LOGOUT`
+- `SESSION_REVOKED`
 
-USER_CREATED
-USER_UPDATED
-USER_DELETED
+- `USER_CREATED`
+- `USER_UPDATED`
+- `USER_DELETED`
 
-GROUP_CREATED
-GROUP_UPDATED
-GROUP_DELETED
+- `GROUP_CREATED`
+- `GROUP_UPDATED`
+- `GROUP_DELETED`
 
-USER_ADDED_TO_GROUP
-USER_REMOVED_FROM_GROUP
+- `USER_ADDED_TO_GROUP`
+- `USER_REMOVED_FROM_GROUP`
 
-ROLE_CREATED
-ROLE_UPDATED
-ROLE_DELETED
+- `ROLE_CREATED`
+- `ROLE_UPDATED`
+- `ROLE_DELETED`
 
-ROLE_ASSIGNED
-ROLE_REMOVED
+- `ROLE_ASSIGNED`
+- `ROLE_REMOVED`
 
-PERMISSION_CREATED
-PERMISSION_DELETED
+- `PERMISSION_CREATED`
+- `PERMISSION_DELETED`
 
-PERMISSION_ASSIGNED
-PERMISSION_REMOVED
+- `PERMISSION_ASSIGNED`
+- `PERMISSION_REMOVED`
 
-AUTHORIZATION_ALLOWED
-AUTHORIZATION_DENIED
+- `AUTHORIZATION_ALLOWED`
+- `AUTHORIZATION_DENIED`
 
 Add additional events when they materially improve security visibility.
 
-22. Audit Event Properties
+## 22. Audit Event Properties
 
 Audit events should contain enough information to answer:
 
@@ -671,22 +823,26 @@ result: success
 timestamp: ...
 metadata: {
     role_id: 3
+```text
 }
 
+```
 Do not trust client-provided audit information.
 
 For example, do not allow the client to submit:
 
+```text
 {
   "user_id": 999,
   "event_type": "ADMIN_GRANTED"
 }
 
+```
 and have the server blindly record it.
 
 Audit events must be generated from trusted server-side context.
 
-23. Audit vs Application Logs
+## 23. Audit vs Application Logs
 
 Use security audit logging for events that have security significance.
 
@@ -703,22 +859,22 @@ Do not use ordinary debug logs as a substitute for the security audit trail.
 
 Never put credentials or secrets into either logging mechanism.
 
-24. Error Handling and Audit Ordering
+## 24. Error Handling and Audit Ordering
 
 Do not expose raw database errors or internal stack traces to clients.
 
 Use appropriate HTTP responses:
 
-200 OK
-201 Created
-204 No Content
+- 200 OK
+- 201 Created
+- 204 No Content
 
-400 Bad Request
-401 Unauthorized
-403 Forbidden
-404 Not Found
-409 Conflict
-429 Too Many Requests
+- 400 Bad Request
+- 401 Unauthorized
+- 403 Forbidden
+- 404 Not Found
+- 409 Conflict
+- 429 Too Many Requests
 
 Important distinction:
 
@@ -730,21 +886,31 @@ For security-relevant failures, ensure the event is captured before returning th
 Example:
 
 Invalid session
+```text
  ↓
 Audit security event if appropriate
+```
+```text
  ↓
 401
+```
 Authenticated user
+```text
  ↓
 Authorization denied
+```
+```text
  ↓
 AUDIT AUTHORIZATION_DENIED
+```
+```text
  ↓
 403
+```
 
 Do not return a successful response if the protected operation failed.
 
-25. Session Security
+## 25. Session Security
 
 Use server-side sessions.
 
@@ -760,20 +926,34 @@ no sensitive information encoded into session ID
 Request flow:
 
 Request
+```text
  ↓
 Extract session
+```
+```text
  ↓
 Validate session
+```
+```text
  ↓
 Check expiration
+```
+```text
  ↓
 Check revocation
+```
+```text
  ↓
 Resolve user
+```
+```text
  ↓
-Authorization
+### Authorization
+```
+```text
  ↓
 Resource
+```
 
 Test:
 
@@ -783,7 +963,7 @@ revoked session
 reuse after logout
 session fixation
 session identifier predictability
-26. Password Security
+## 26. Password Security
 
 Use an established password hashing library.
 
@@ -805,7 +985,7 @@ Never log:
 
 plaintext passwords
 password hashes
-27. Bootstrap Administrator
+## 27. Bootstrap Administrator
 
 A fresh development database must create a bootstrap administrator using environment-provided credentials.
 
@@ -826,7 +1006,7 @@ Assign Administrator role.
 
 This should happen as part of development database initialization.
 
-28. Database Lifecycle
+## 28. Database Lifecycle
 
 Development database is intentionally ephemeral.
 
@@ -835,16 +1015,26 @@ Use Docker Compose for PostgreSQL.
 Development startup/reset process:
 
 Start PostgreSQL
+```text
     ↓
 Explicitly reset development database
+```
+```text
     ↓
 Execute schema.sql
+```
+```text
     ↓
 Create bootstrap administrator
+```
+```text
     ↓
 Create development data
+```
+```text
     ↓
 Start FastAPI
+```
 
 Do not automatically perform destructive database resets on every Uvicorn reload.
 
@@ -852,7 +1042,7 @@ No Alembic/migrations are required for V1.
 
 Never use the destructive reset mechanism in production.
 
-29. Security Testing
+## 29. Security Testing
 
 Security tests are a core part of V1.
 
@@ -879,9 +1069,11 @@ predictable session IDs
 
 Test authorization:
 
+```text
 unauthenticated request → 401
 authenticated but unauthorized → 403
 authorized request succeeds
+```
 normal user cannot grant themselves privileges
 normal user cannot modify another user's roles
 normal user cannot modify role permissions
@@ -891,18 +1083,26 @@ normal user cannot perform application:deploy without permission
 Test IDOR:
 
 Alice authenticated
+```text
  ↓
-PATCH /users/Bob-ID
+- `PATCH /users/Bob-ID`
+```
+```text
  ↓
 Must not succeed merely because Alice knows Bob's ID
+```
 
 Test privilege escalation:
 
 Normal User
+```text
  ↓
 attempt Administrator
+```
+```text
  ↓
 DENY
+```
 
 Also test:
 
@@ -918,17 +1118,21 @@ sensitive information leakage
 
 Every discovered security vulnerability should become a regression test.
 
-30. Security Testing of the Control Flow
+## 30. Security Testing of the Control Flow
 
 Tests should verify not only the final HTTP response but also that the security control occurs in the correct order.
 
 For protected endpoints:
 
-Authentication
+### Authentication
+```text
     ↓
-Authorization
+### Authorization
+```
+```text
     ↓
 Operation
+```
 
 must be enforced.
 
@@ -937,45 +1141,66 @@ A request that fails authorization must never reach the protected operation.
 For example:
 
 Unauthorized deploy request
+```text
         ↓
 authorization denied
+```
+```text
         ↓
 deploy operation must NOT execute
+```
+```text
         ↓
-AUTHORIZATION_DENIED audit event
+- `AUTHORIZATION_DENIED audit event`
+```
+```text
         ↓
 403
+```
 
 This is important: authorization is a preventative control; auditing is primarily a detective/accountability control.
 
 The audit trail must not be used as a substitute for authorization.
 
-31. Architecture Principle
+## 31. Architecture Principle
 
 Keep the following responsibilities separate:
 
-Authentication
+### Authentication
+```text
     → establishes identity
 
-Session Management
+```
+### Session Management
+```text
     → maintains authenticated state
 
-Authorization
+```
+### Authorization
+```text
     → determines what the identity may do
 
-Protected Resource
+```
+- Protected Resource
+```text
     → performs the requested operation
 
-Audit Logging
+```
+- Audit Logging
+```text
     → records security-relevant decisions and outcomes
 
+```
 Conceptually:
 
+```text
                   ┌──────────────────┐
 Request ─────────►│ Authentication   │
                   └────────┬─────────┘
                            │
                            ▼
+```
+```text
                   ┌──────────────────┐
                   │ Authorization    │
                   └────────┬─────────┘
@@ -983,10 +1208,14 @@ Request ─────────►│ Authentication   │
                     ┌──────┴──────┐
                     │             │
                   DENY           ALLOW
+```
+```text
                     │             │
                     ▼             ▼
+```
                   Audit       Protected
                   Denied      Operation
+```text
                     │             │
                     │             ▼
                     │           Audit
@@ -994,6 +1223,7 @@ Request ─────────►│ Authentication   │
                     │             │
                     └──────┬──────┘
                            ▼
+```
                         Response
 
 Keep this flow understandable and explicit.
@@ -1002,11 +1232,12 @@ Do not introduce a complex middleware/policy framework merely for abstraction's 
 
 Use middleware/dependencies where they genuinely simplify cross-cutting concerns such as session extraction, but keep authorization decisions and security-sensitive behavior easy to trace.
 
-32. Project Structure
+## 32. Project Structure
 
 Start with:
 
 iam-platform/
+```text
 ├── app/
 │   ├── main.py
 │   ├── api.py
@@ -1023,11 +1254,12 @@ iam-platform/
 ├── requirements.txt
 └── README.md
 
+```
 Split files/modules further only when the complexity justifies it.
 
 Do not create abstractions simply because they might be useful in the future.
 
-33. Security Documentation
+## 33. Security Documentation
 
 docs/security.md must explain:
 
@@ -1049,15 +1281,17 @@ future security improvements
 Include the request control flow:
 
 Request
+```text
  → Authentication
  → Authorization
  → Operation
  → Audit
  → Response
 
+```
 Explain why authorization occurs before the protected operation and why audit logging does not replace authorization.
 
-34. Architecture Documentation
+## 34. Architecture Documentation
 
 docs/architecture.md must explain:
 
@@ -1078,7 +1312,7 @@ Keep the architecture appropriate for the actual V1 implementation.
 
 Do not design the architecture around future technologies that do not yet exist.
 
-35. Definition of Done
+## 35. Definition of Done
 
 V1 is complete only when:
 
@@ -1120,42 +1354,62 @@ Most importantly:
 The implementation must demonstrate the complete security control flow, not merely implement isolated authentication, authorization, and logging features.
 
 Authenticate
+```text
      ↓
 Authorize
+```
+```text
      ↓
 Prevent unauthorized operation
+```
+```text
      ↓
 Execute authorized operation
+```
+```text
      ↓
 Record security-relevant outcome
+```
+```text
      ↓
 Return response
+```
 
 Once all of the above is complete and tests pass, stop.
 
 Do not automatically implement V2 features.
 
-36. Secure Application Development Requirements
+## 36. Secure Application Development Requirements
 
 The entire IAM V1 implementation must follow secure application development best practices.
 
 Do not treat security as a final testing phase. Security must be considered during:
 
 Design
+```text
   ↓
 Implementation
+```
+```text
   ↓
 Testing
+```
+```text
   ↓
-Security Testing
+### Security Testing
+```
+```text
   ↓
 Review
+```
+```text
   ↓
 Remediation
+```
 
 Use the following standards and guidance as the baseline:
 
-OWASP Top 10:2025
+### OWASP Top 10:2025
 OWASP Application Security Verification Standard (ASVS)
 OWASP Cheat Sheet Series
 OWASP Proactive Controls
@@ -1165,11 +1419,11 @@ MITRE CWE / CWE Top 25
 
 The OWASP Top 10 is a baseline for awareness, not a complete security checklist. Therefore, use ASVS, OWASP guidance, and NIST SSDF to fill in the implementation and development-process requirements.
 
-36.1 OWASP Top 10:2025
+### 36.1 OWASP Top 10:2025
 
 Explicitly consider and test against all ten OWASP Top 10:2025 categories:
 
-A01 — Broken Access Control
+### A01 — Broken Access Control
 
 Protect against:
 
@@ -1188,7 +1442,7 @@ For this IAM project, this is one of the highest-priority security areas.
 
 Every protected operation must perform authorization before executing the operation.
 
-A02 — Security Misconfiguration
+### A02 — Security Misconfiguration
 
 Prevent:
 
@@ -1206,7 +1460,7 @@ insecure HTTP security configuration where applicable
 
 Development conveniences must not accidentally become security vulnerabilities.
 
-A03 — Software Supply Chain Failures
+### A03 — Software Supply Chain Failures
 
 Minimize unnecessary dependencies.
 
@@ -1225,7 +1479,7 @@ The project should be able to explain why each significant dependency exists.
 
 Where practical, perform dependency vulnerability scanning as part of the development workflow.
 
-A04 — Cryptographic Failures
+### A04 — Cryptographic Failures
 
 Never implement cryptography manually.
 
@@ -1248,7 +1502,7 @@ hardcode cryptographic secrets
 
 Secrets and credentials must never be committed to source control.
 
-A05 — Injection
+### A05 — Injection
 
 Protect all externally controlled input.
 
@@ -1269,7 +1523,7 @@ Validate input at application boundaries.
 
 Validation must not be considered a replacement for parameterized queries.
 
-A06 — Insecure Design
+### A06 — Insecure Design
 
 Security must be considered during architecture and design.
 
@@ -1302,7 +1556,7 @@ Sensitive-data leakage
 
 Do not rely on a generic security mechanism to solve an architectural authorization problem.
 
-A07 — Authentication Failures
+### A07 — Authentication Failures
 
 Implement:
 
@@ -1322,13 +1576,13 @@ Authentication must not disclose whether a username exists.
 
 Do not build custom cryptographic authentication mechanisms.
 
-A08 — Software or Data Integrity Failures
+### A08 — Software or Data Integrity Failures
 
 Protect the integrity of:
 
 authorization decisions
-roles
-permissions
+- roles
+- permissions
 sessions
 audit records
 security configuration
@@ -1337,17 +1591,19 @@ Do not trust security-sensitive values supplied by the client.
 
 For example, a client must not be able to submit:
 
+```text
 {
   "is_admin": true
 }
 
+```
 and thereby become an administrator.
 
 Authorization must be derived from trusted server-side identity and role/permission data.
 
 Audit events must be generated server-side.
 
-A09 — Security Logging and Alerting Failures
+### A09 — Security Logging and Alerting Failures
 
 Implement security audit logging as a first-class security capability.
 
@@ -1384,15 +1640,23 @@ Audit logging must not replace preventive security controls.
 The correct flow is:
 
 Authenticate
+```text
     ↓
 Authorize
+```
+```text
     ↓
 Prevent unauthorized action
+```
+```text
     ↓
 Execute authorized action
+```
+```text
     ↓
 Audit result
-A10 — Mishandling of Exceptional Conditions
+```
+### A10 — Mishandling of Exceptional Conditions
 
 Handle failures securely.
 
@@ -1415,22 +1679,26 @@ Security-sensitive operations must not accidentally succeed because an exception
 For example:
 
 Authorization check fails unexpectedly
+```text
         ↓
 DO NOT continue with operation
+```
+```text
         ↓
 Fail closed
+```
 
 Do not implement:
 
 if authorization_check_failed:
     continue_anyway()
-37. OWASP ASVS-Inspired Requirements
+## 37. OWASP ASVS-Inspired Requirements
 
 Use OWASP ASVS as a more detailed verification baseline rather than treating the OWASP Top 10 as the complete specification.
 
 At minimum, cover these areas:
 
-Input Validation
+### Input Validation
 validate request structure
 validate types
 validate required fields
@@ -1438,68 +1706,78 @@ validate lengths
 validate identifiers
 reject malformed input
 use parameterized queries
-Authentication
+### Authentication
 secure password storage
 authentication failure handling
 brute-force protection
 account status validation
 secure session creation
-Session Management
+### Session Management
 unpredictable session identifiers
 server-side session state
 expiration
 revocation
 logout
 session fixation protection
-Access Control
+### Access Control
 centralized authorization
 deny by default
 least privilege
 server-side enforcement
 protection against IDOR
 protection against privilege escalation
-Validation and Business Logic
+### Validation and Business Logic
 
 Test security-relevant workflows, not only individual endpoints.
 
 Examples:
 
 Create user
+```text
  ↓
 Assign role
+```
+```text
  ↓
 Role gains permission
+```
+```text
  ↓
 User can access resource
+```
 
 and:
 
 Normal user
+```text
  ↓
 Attempts to modify own role
+```
+```text
  ↓
 Must be denied
-Error Handling
+```
+### Error Handling
 controlled error responses
 no sensitive information leakage
 fail securely
 distinguish 401 and 403 correctly
-Logging
+### Logging
 security events are recorded
 logs contain sufficient context
 sensitive information is excluded
 users cannot manipulate audit records
-38. Secure Coding Principles
+## 38. Secure Coding Principles
 
 Apply these principles throughout the implementation.
 
-Least Privilege
+### Least Privilege
 
 Every operation should have the minimum privileges necessary.
 
 Do not give ordinary users administrative capabilities.
 
-Deny by Default
+### Deny by Default
 
 If authorization cannot establish that an action is allowed:
 
@@ -1508,19 +1786,19 @@ DENY
 not:
 
 ALLOW
-Fail Securely
+### Fail Securely
 
 Unexpected security failures must not result in access being granted.
 
-Defense in Depth
+### Defense in Depth
 
 Do not depend on one security mechanism where multiple independent controls are appropriate.
 
 Example:
 
-Authentication
+### Authentication
 +
-Authorization
+### Authorization
 +
 Database constraints
 +
@@ -1529,30 +1807,30 @@ Input validation
 Audit logging
 +
 Security testing
-Complete Mediation
+### Complete Mediation
 
 Authorization must occur whenever access to a protected operation requires it.
 
 Do not authorize once and then assume all subsequent operations are trusted indefinitely.
 
-Separation of Privilege
+### Separation of Privilege
 
 Keep:
 
-Authentication
-Authorization
+### Authentication
+### Authorization
 Application logic
 Audit logging
 
 conceptually separate.
 
-Minimize Attack Surface
+### Minimize Attack Surface
 
 Only expose endpoints and functionality required by V1.
 
 Do not create unused administrative/debug endpoints.
 
-Secure Defaults
+### Secure Defaults
 
 The default state should be secure.
 
@@ -1564,13 +1842,13 @@ authorization defaults to deny
 accounts are not privileged by default
 secrets are not included in responses
 debug information is not exposed to clients
-Keep Security Logic Centralized
+### Keep Security Logic Centralized
 
 Avoid duplicating authorization logic throughout endpoints.
 
 Use a clear authorization mechanism so security decisions can be reviewed and tested consistently.
 
-39. Threat Modeling
+## 39. Threat Modeling
 
 Before or during implementation, create a lightweight threat model in:
 
@@ -1578,34 +1856,38 @@ docs/threat-model.md
 
 Document at least:
 
-Assets
+### Assets
 user identities
 passwords
 sessions
-roles
-permissions
+- roles
+- permissions
 application data
 audit records
 administrative privileges
-Threat Actors
+### Threat Actors
 unauthenticated attacker
 authenticated normal user
 compromised user account
 malicious administrator
 attacker with knowledge of object IDs
-Trust Boundaries
+### Trust Boundaries
 
 At minimum:
 
 Client
+```text
   ↓
 FastAPI application
+```
+```text
   ↓
-PostgreSQL
+- PostgreSQL
+```
 
 Identify what is trusted and untrusted at each boundary.
 
-Threats
+### Threats
 
 At minimum:
 
@@ -1625,43 +1907,61 @@ compromised administrator account
 
 Each important threat should have at least one mitigation and, where practical, a test.
 
-40. Secure Development Workflow
+## 40. Secure Development Workflow
 
 Do not implement security only after the application is complete.
 
 For each security-sensitive feature:
 
 Understand requirement
+```text
        ↓
 Identify security risks
+```
+```text
        ↓
 Design security control
+```
+```text
        ↓
 Implement
+```
+```text
        ↓
 Write functional tests
+```
+```text
        ↓
 Write security tests
+```
+```text
        ↓
 Attempt to bypass the control
+```
+```text
        ↓
 Fix vulnerabilities
+```
+```text
        ↓
 Add regression test
+```
 
 Use the mindset:
 
 Design
+```text
 → Implement
 → Attack
 → Detect
 → Mitigate
 → Retest
-41. Security Review Checklist
+## 41. Security Review Checklist
+```
 
 Before considering V1 complete, explicitly review:
 
-Authentication
+### Authentication
 
 Passwords securely hashed
 
@@ -1683,7 +1983,7 @@ Logout
 
 Session fixation tested
 
-Authorization
+### Authorization
 
 Authentication required
 
@@ -1721,7 +2021,7 @@ No unsafe deserialization
 
 Appropriate length limits
 
-Session
+### Session
 
 Unpredictable session identifier
 
@@ -1737,7 +2037,7 @@ Reuse after logout tested
 
 Fixation tested
 
-Logging
+### Logging
 
 Login success logged
 
@@ -1753,7 +2053,7 @@ Sensitive data excluded
 
 Client cannot forge audit events
 
-Error Handling
+### Error Handling
 
 No stack traces to clients
 
@@ -1791,7 +2091,7 @@ Security tests exist
 
 Vulnerabilities found during testing become regression tests
 
-42. Security Standard of Completion
+## 42. Security Standard of Completion
 
 Do not interpret "tests pass" as automatically meaning "secure."
 
