@@ -148,18 +148,34 @@ The `tests` job validates both behavior and database compatibility:
 Any unit failure, database failure, authentication failure, or integration security regression
 fails the job.
 
-### 5. Syft SBOM generation
+### 5. Syft SBOM generation and Trivy CVE verification
 
-The `sbom` job uses `anchore/syft:v1.18.1`:
+The `sbom` job uses `anchore/syft:v1.18.1` followed by `aquasec/trivy:0.59.1`. Syft produces the
+inventory and Trivy consumes that exact inventory for a second, explicit CVE check:
 
 1. Checks out the repository.
-2. Mounts the checkout into the Syft container as `/src`.
-3. Scans `/src/iam-platform` and its dependency manifests.
-4. Writes a CycloneDX JSON document to `sbom.cdx.json`.
-5. Uploads it as the `cyclonedx-sbom` artifact.
+2. Installs the dependencies from `requirements.txt` into the temporary
+    `iam-platform/.ci-sbom-site` directory. This resolves the actual package versions that CI can
+    install instead of treating the manifest as an empty source file.
+3. Mounts the checkout into the Syft container as `/repo`.
+4. Scans `/repo/iam-platform`, including the temporary installed Python package metadata and
+    dependency manifests.
+5. Writes a CycloneDX JSON document to `sbom.cdx.json`.
+6. Runs `trivy sbom /repo/sbom.cdx.json` against the generated CycloneDX document.
+7. Writes the SBOM vulnerability results to `sbom-trivy.sarif`.
+8. Fails on High or Critical CVEs, including unfixed findings, and uploads both files as the
+    `cyclonedx-sbom-and-cve-report` artifact.
 
-SBOM generation must succeed. The output is a source/dependency inventory, not an image SBOM,
-because this repository has no application Dockerfile or application image build.
+SBOM generation and SBOM scanning must both succeed. The output is a source/dependency inventory,
+not an image SBOM, because this repository has no application Dockerfile or application image
+build. The separate Trivy filesystem job remains useful because it also scans repository
+configuration and IaC; the SBOM job verifies the package inventory produced by Syft itself.
+
+This system currently has no `package.json`, so there are no npm packages to catalog. It also has
+no application Dockerfile or container image, so OS packages cannot be represented in this SBOM.
+OS package inventory requires scanning the actual runtime image with Syft and then passing that
+image SBOM to Trivy. Adding a placeholder image would make the result misleading, so OS package
+coverage remains pending until this sub-project has an application image.
 
 ### 6. OWASP ZAP baseline DAST
 
@@ -195,7 +211,7 @@ This means the gate blocks on:
 - Any confirmed Gitleaks secret or scanner setup failure.
 - Any Trivy High or Critical vulnerability/misconfiguration or scanner setup failure.
 - Any failed unit or PostgreSQL integration test.
-- Failure to generate the SBOM.
+- Failure to generate the SBOM or scan it for CVEs.
 - Any DAST job failure, including a High or Critical ZAP alert.
 
 Reports are uploaded before the gate is evaluated, so a failed gate should still provide the
