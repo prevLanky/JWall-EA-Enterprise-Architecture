@@ -34,6 +34,8 @@ def create_default_app() -> FastAPI:
                 "BOOTSTRAP_ADMIN_EMAIL together."
             )
         service.bootstrap(*bootstrap_values)
+        if os.environ.get("IAM_SEED_DEMO_USERS", "false").lower() == "true":
+            service.seed_demo_users()
 
     return create_app(IamService(connection), startup)
 

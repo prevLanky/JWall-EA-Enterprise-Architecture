@@ -3,8 +3,9 @@
 The repository uses the GitHub Actions workflow at the repository-root path
 `.github/workflows/security.yml`. The application itself lives in the `iam-platform/` subdirectory.
 The workflow is named `DevSecOps Security - iam-platform`, and its path filters cause it to run
-on pull requests and on pushes to `main` or `dev` when `iam-platform/**` or this workflow changes.
-It uses temporary CI credentials and
+on pull requests, on pushes to `main` or `dev`, and on manual `workflow_dispatch` runs. Pull
+request and push path filters require `iam-platform/**` or this workflow to change. It uses
+temporary CI credentials and
 temporary PostgreSQL services; it never targets production systems.
 
 This document explains what happens from trigger to gate, why each tool is present, what files and
@@ -114,7 +115,8 @@ this job.
 
 ### 3. Trivy dependency and configuration scanning
 
-The `trivy` job uses `aquasecurity/trivy-action@0.28.0`:
+The `trivy` job uses the pinned `aquasec/trivy:0.59.1` container directly. Using the container
+avoids depending on a separate setup action and keeps the scanner version explicit:
 
 1. Checks out the full repository.
 2. Uses Trivy filesystem mode with both `vuln` and `misconfig` scanners.
@@ -123,7 +125,8 @@ The `trivy` job uses `aquasecurity/trivy-action@0.28.0`:
     Compose file.
 4. Includes fixed and unfixed results because `ignore-unfixed` is false.
 5. Requests only `HIGH` and `CRITICAL` results for the blocking scan.
-6. Writes a SARIF report to `trivy.sarif` and uploads it as `trivy-report`.
+6. Writes a SARIF report to the repository workspace as `trivy.sarif` and uploads it as
+    `trivy-report`.
 
 Trivy's vulnerability and misconfiguration databases provide the findings. The repository does
 not maintain a hand-written CVE list.
@@ -145,18 +148,34 @@ The `tests` job validates both behavior and database compatibility:
 Any unit failure, database failure, authentication failure, or integration security regression
 fails the job.
 
-### 5. Syft SBOM generation
+### 5. Syft SBOM generation and Trivy CVE verification
 
-The `sbom` job uses `anchore/syft:v1.18.1`:
+The `sbom` job uses `anchore/syft:v1.18.1` followed by `aquasec/trivy:0.59.1`. Syft produces an
+SPDX inventory and Trivy consumes that exact inventory for a second, explicit CVE check:
 
 1. Checks out the repository.
-2. Mounts the checkout into the Syft container as `/src`.
-3. Scans `/src/iam-platform` and its dependency manifests.
-4. Writes a CycloneDX JSON document to `sbom.cdx.json`.
-5. Uploads it as the `cyclonedx-sbom` artifact.
+2. Installs the dependencies from `requirements.txt` into the temporary
+    `iam-platform/.ci-sbom-site` directory. This resolves the actual package versions that CI can
+    install instead of treating the manifest as an empty source file.
+3. Mounts the checkout into the Syft container as `/repo`.
+4. Scans `/repo/iam-platform`, including the temporary installed Python package metadata and
+    dependency manifests.
+5. Writes an SPDX JSON document to `sbom.spdx.json`.
+6. Runs `trivy sbom /repo/sbom.spdx.json` against the generated SPDX document.
+7. Writes the SBOM vulnerability results to `sbom-trivy.sarif`.
+8. Fails on High or Critical CVEs, including unfixed findings, and uploads both files as the
+    `spdx-sbom-and-cve-report` artifact.
 
-SBOM generation must succeed. The output is a source/dependency inventory, not an image SBOM,
-because this repository has no application Dockerfile or application image build.
+SBOM generation and SBOM scanning must both succeed. The output is a source/dependency inventory,
+not an image SBOM, because this repository has no application Dockerfile or application image
+build. The separate Trivy filesystem job remains useful because it also scans repository
+configuration and IaC; the SBOM job verifies the package inventory produced by Syft itself.
+
+This system currently has no `package.json`, so there are no npm packages to catalog. It also has
+no application Dockerfile or container image, so OS packages cannot be represented in this SBOM.
+OS package inventory requires scanning the actual runtime image with Syft and then passing that
+image SBOM to Trivy. Adding a placeholder image would make the result misleading, so OS package
+coverage remains pending until this sub-project has an application image.
 
 ### 6. OWASP ZAP baseline DAST
 
@@ -170,8 +189,10 @@ The `dast` job creates a temporary HTTP test environment:
     log and fails before scanning.
 5. The pinned `zaproxy/zap-stable:2.15.0` container scans only
     `http://127.0.0.1:8002` through Docker host networking.
-6. ZAP writes `zap.html` and `zap.json` into the runner workspace.
-7. The job parses the JSON report and fails if any alert has ZAP risk code `3` (High) or `4`
+6. The container runs as root with `/zap/wrk` as its working directory so the mounted GitHub
+    workspace is writable. ZAP writes `zap.html` and `zap.json` into that workspace.
+7. The job preserves ZAP's scanner exit status separately from the report policy, parses the JSON
+    report, and fails if any alert has ZAP risk code `3` (High) or `4`
     (Critical). Lower-risk findings remain available in the report.
 8. Both reports are uploaded as `zap-report`, including when the scan or gate fails.
 
@@ -190,7 +211,7 @@ This means the gate blocks on:
 - Any confirmed Gitleaks secret or scanner setup failure.
 - Any Trivy High or Critical vulnerability/misconfiguration or scanner setup failure.
 - Any failed unit or PostgreSQL integration test.
-- Failure to generate the SBOM.
+- Failure to generate the SBOM or scan it for CVEs.
 - Any DAST job failure, including a High or Critical ZAP alert.
 
 Reports are uploaded before the gate is evaluated, so a failed gate should still provide the
@@ -201,7 +222,8 @@ artifact needed to investigate the finding.
 - **Semgrep** uses maintained community rules for Python security patterns without adding a custom ruleset.
 - **Gitleaks** detects high-confidence credentials and tokens using its maintained detector database.
 - **Trivy** covers both Python dependency vulnerabilities and supported repository configuration/IaC findings.
-- **Syft** creates a CycloneDX inventory that can be retained with the workflow run. It is a source/dependency SBOM because this repository does not build an application image.
+- **Syft** creates an SPDX inventory that can be retained with the workflow run. It is a
+    source/dependency SBOM because this repository does not build an application image.
 - **OWASP ZAP** provides a free baseline scan of the actual FastAPI HTTP surface in a private, temporary CI environment.
 
 ## Running locally
@@ -228,7 +250,7 @@ The scanner commands used by CI can be run locally when the corresponding tools 
 semgrep scan --config p/python --config p/security-audit iam-platform --sarif --output semgrep.sarif --error
 gitleaks detect --source . --report-format sarif --report-path gitleaks.sarif --no-banner --exit-code 1
 trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL iam-platform
-syft dir:iam-platform -o cyclonedx-json=sbom.cdx.json
+syft dir:iam-platform -o spdx-json=sbom.spdx.json
 ```
 
 For DAST, start the API against a temporary local PostgreSQL instance, verify `/health`, and run the pinned ZAP container command from the workflow. Do not point ZAP at production.

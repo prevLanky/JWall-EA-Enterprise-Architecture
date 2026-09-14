@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
     PRIMARY KEY (role_id, permission_id)
 );
 CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
+    id_hash TEXT PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
@@ -104,7 +104,7 @@ EXPECTED_SCHEMA: dict[str, tuple[str, ...]] = {
     "user_roles": ("user_id", "role_id"),
     "permissions": ("id", "resource", "action", "created_at"),
     "role_permissions": ("role_id", "permission_id"),
-    "sessions": ("id", "user_id", "expires_at"),
+    "sessions": ("id_hash", "user_id", "expires_at"),
     "applications": ("id", "name"),
     "audit_events": ("id", "event_type", "user_id"),
 }

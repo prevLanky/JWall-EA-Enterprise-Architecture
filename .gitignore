@@ -5,6 +5,7 @@
 *.cdx.json
 zap.html
 zap.json
+/iam-platform/.ci-sbom-site/
 
 # Local prompt attachment
 /iam-platform/iam_v2.txt

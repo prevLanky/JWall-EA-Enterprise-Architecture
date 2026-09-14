@@ -7,6 +7,16 @@ from fastapi.security import APIKeyHeader
 
 from ..core.errors import IamError
 from ..domain.iam import IamService
+from .models import (
+    ApplicationCreateRequest,
+    ApplicationUpdateRequest,
+    LoginRequest,
+    NamedResourceRequest,
+    PermissionCreateRequest,
+    ResourceUpdateRequest,
+    UserCreateRequest,
+    UserUpdateRequest,
+)
 
 Result = TypeVar("Result")
 
@@ -38,8 +48,8 @@ def _application_actor(service: IamService, session_id: str | None, action: str,
 
 def _register_auth_routes(router: APIRouter, service: IamService) -> None:
     @router.post("/auth/login")
-    def login(payload: dict[str, Any]) -> dict[str, str]:
-        return _call(lambda: service.login(payload.get("username"), payload.get("password")))
+    def login(payload: LoginRequest) -> dict[str, str]:
+        return _call(lambda: service.login(payload.username, payload.password))
 
     @router.post("/auth/logout", status_code=204)
     def logout(response: Response, x_session_id: str | None = Depends(session_header)) -> None:
@@ -54,9 +64,9 @@ def _register_auth_routes(router: APIRouter, service: IamService) -> None:
 
 def _register_user_routes(router: APIRouter, service: IamService) -> None:
     @router.post("/users", status_code=201)
-    def create_user(payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def create_user(payload: UserCreateRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _admin(service, x_session_id)
-        return _call(lambda: service.create_user(payload.get("username"), payload.get("display_name"), payload.get("password"), payload.get("email"), actor_id))
+        return _call(lambda: service.create_user(payload.username, payload.display_name, payload.password, payload.email, actor_id))
 
     @router.get("/users")
     def list_users(x_session_id: str | None = Depends(session_header)) -> Any:
@@ -69,11 +79,9 @@ def _register_user_routes(router: APIRouter, service: IamService) -> None:
         return _call(lambda: service.get_user(user_id))
 
     @router.patch("/users/{user_id}")
-    def update_user(user_id: UUID, payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def update_user(user_id: UUID, payload: UserUpdateRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _admin(service, x_session_id)
-        if any(key not in {"email", "display_name", "is_active"} for key in payload):
-            raise HTTPException(status_code=400, detail="only email, display_name, and is_active may be updated")
-        return _call(lambda: service.update_user(user_id, payload.get("display_name"), payload.get("email"), payload.get("is_active"), actor_id))
+        return _call(lambda: service.update_user(user_id, payload.display_name, payload.email, payload.is_active, actor_id))
 
     @router.delete("/users/{user_id}", status_code=204)
     def delete_user(user_id: UUID, x_session_id: str | None = Depends(session_header)) -> None:
@@ -123,9 +131,9 @@ def _register_user_routes(router: APIRouter, service: IamService) -> None:
 
 def _register_group_routes(router: APIRouter, service: IamService) -> None:
     @router.post("/groups", status_code=201)
-    def create_group(payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def create_group(payload: NamedResourceRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _admin(service, x_session_id)
-        return _call(lambda: service.create_group(payload.get("name"), payload.get("description"), actor_id))
+        return _call(lambda: service.create_group(payload.name, payload.description, actor_id))
 
     @router.get("/groups")
     def list_groups(x_session_id: str | None = Depends(session_header)) -> Any:
@@ -138,11 +146,11 @@ def _register_group_routes(router: APIRouter, service: IamService) -> None:
         return _call(lambda: service.get_group(group_id))
 
     @router.patch("/groups/{group_id}")
-    def update_group(group_id: UUID, payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def update_group(group_id: UUID, payload: ResourceUpdateRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _admin(service, x_session_id)
-        if not payload or not set(payload).issubset({"name", "description"}):
+        if payload.name is None and payload.description is None:
             raise HTTPException(status_code=400, detail="name or description is required")
-        return _call(lambda: service.update_group(group_id, payload.get("name"), payload.get("description"), actor_id))
+        return _call(lambda: service.update_group(group_id, payload.name, payload.description, actor_id))
 
     @router.delete("/groups/{group_id}", status_code=204)
     def delete_group(group_id: UUID, x_session_id: str | None = Depends(session_header)) -> None:
@@ -152,9 +160,9 @@ def _register_group_routes(router: APIRouter, service: IamService) -> None:
 
 def _register_role_routes(router: APIRouter, service: IamService) -> None:
     @router.post("/roles", status_code=201)
-    def create_role(payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def create_role(payload: NamedResourceRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _admin(service, x_session_id)
-        return _call(lambda: service.create_role(payload.get("name"), payload.get("description"), actor_id))
+        return _call(lambda: service.create_role(payload.name, payload.description, actor_id))
 
     @router.get("/roles")
     def list_roles(x_session_id: str | None = Depends(session_header)) -> Any:
@@ -167,11 +175,11 @@ def _register_role_routes(router: APIRouter, service: IamService) -> None:
         return _call(lambda: service.get_role(role_id))
 
     @router.patch("/roles/{role_id}")
-    def update_role(role_id: UUID, payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def update_role(role_id: UUID, payload: ResourceUpdateRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _admin(service, x_session_id)
-        if not payload or not set(payload).issubset({"name", "description"}):
+        if payload.name is None and payload.description is None:
             raise HTTPException(status_code=400, detail="name or description is required")
-        return _call(lambda: service.update_role(role_id, payload.get("name"), payload.get("description"), actor_id))
+        return _call(lambda: service.update_role(role_id, payload.name, payload.description, actor_id))
 
     @router.delete("/roles/{role_id}", status_code=204)
     def delete_role(role_id: UUID, x_session_id: str | None = Depends(session_header)) -> None:
@@ -196,9 +204,9 @@ def _register_role_routes(router: APIRouter, service: IamService) -> None:
 
 def _register_permission_routes(router: APIRouter, service: IamService) -> None:
     @router.post("/permissions", status_code=201)
-    def create_permission(payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def create_permission(payload: PermissionCreateRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _admin(service, x_session_id)
-        return _call(lambda: service.create_permission(payload.get("resource"), payload.get("action"), actor_id))
+        return _call(lambda: service.create_permission(payload.resource, payload.action, actor_id))
 
     @router.get("/permissions")
     def list_permissions(x_session_id: str | None = Depends(session_header)) -> Any:
@@ -218,9 +226,9 @@ def _register_permission_routes(router: APIRouter, service: IamService) -> None:
 
 def _register_application_routes(router: APIRouter, service: IamService) -> None:
     @router.post("/applications", status_code=201)
-    def create_application(payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def create_application(payload: ApplicationCreateRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _application_actor(service, x_session_id, "create")
-        return _call(lambda: service.create_application(payload.get("name"), payload.get("description"), actor_id))
+        return _call(lambda: service.create_application(payload.name, payload.description, actor_id))
 
     @router.get("/applications")
     def list_applications(x_session_id: str | None = Depends(session_header)) -> Any:
@@ -233,11 +241,11 @@ def _register_application_routes(router: APIRouter, service: IamService) -> None
         return _call(lambda: service.get_application(application_id))
 
     @router.patch("/applications/{application_id}")
-    def update_application(application_id: UUID, payload: dict[str, Any], x_session_id: str | None = Depends(session_header)) -> Any:
+    def update_application(application_id: UUID, payload: ApplicationUpdateRequest, x_session_id: str | None = Depends(session_header)) -> Any:
         actor_id = _application_actor(service, x_session_id, "update", application_id)
-        if not payload or not set(payload).issubset({"name", "description"}):
+        if payload.name is None and payload.description is None:
             raise HTTPException(status_code=400, detail="name or description is required")
-        return _call(lambda: service.update_application(application_id, payload.get("name"), payload.get("description"), actor_id))
+        return _call(lambda: service.update_application(application_id, payload.name, payload.description, actor_id))
 
     @router.delete("/applications/{application_id}", status_code=204)
     def delete_application(application_id: UUID, x_session_id: str | None = Depends(session_header)) -> None:

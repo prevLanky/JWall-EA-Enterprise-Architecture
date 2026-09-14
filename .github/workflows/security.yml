@@ -5,6 +5,7 @@ on:
     paths:
       - 'iam-platform/**'
       - '.github/workflows/security.yml'
+  workflow_dispatch:
   push:
     branches: [main, dev]
     paths:
@@ -84,16 +85,17 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4.2.2
       - name: Scan dependencies and configuration
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: iam-platform
-          scanners: vuln,misconfig
-          format: sarif
-          output: trivy.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: false
-          exit-code: '1'
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/repo" \
+            aquasec/trivy:0.59.1 \
+            fs /repo/iam-platform \
+            --scanners vuln,misconfig \
+            --format sarif \
+            --output /repo/trivy.sarif \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed=false \
+            --exit-code 1
       - name: Upload Trivy report
         if: always()
         uses: actions/upload-artifact@v4.6.2
@@ -140,24 +142,52 @@ jobs:
         run: python -m pytest -q
 
   sbom:
-    name: SBOM (Syft)
+    name: SBOM and CVE verification (Syft + Trivy)
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@v4.2.2
-      - name: Generate CycloneDX source and dependency SBOM
+      - name: Set up Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.10'
+      - name: Resolve Python dependencies for SBOM
+        working-directory: iam-platform
+        run: python -m pip install --target .ci-sbom-site --requirement requirements.txt
+      - name: Generate SPDX source and dependency SBOM
         run: >-
           docker run --rm
-          -v "${{ github.workspace }}:/src"
+          -v "${{ github.workspace }}:/repo"
           anchore/syft:v1.18.1
-          dir:/src/iam-platform
-          -o cyclonedx-json=/src/sbom.cdx.json
-      - name: Upload SBOM
+          dir:/repo/iam-platform
+          -o spdx-json=/repo/sbom.spdx.json
+      - name: Scan generated SBOM for CVEs
+        run: |
+          set +e
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/repo" \
+            aquasec/trivy:0.59.1 \
+            sbom /repo/sbom.spdx.json \
+            --format sarif \
+            --output /repo/sbom-trivy.sarif \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed=false \
+            --exit-code 1
+          sbom_scan_status=$?
+          set -e
+          test -f sbom-trivy.sarif
+          if [ "$sbom_scan_status" -ne 0 ]; then
+            echo "Trivy found blocking CVEs in the generated SBOM."
+            exit "$sbom_scan_status"
+          fi
+      - name: Upload SBOM and CVE report
         if: always()
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: cyclonedx-sbom
-          path: sbom.cdx.json
+          name: spdx-sbom-and-cve-report
+          path: |
+            sbom.spdx.json
+            sbom-trivy.sarif
           if-no-files-found: error
 
   dast:
@@ -207,18 +237,20 @@ jobs:
       - name: Run ZAP baseline scan against temporary API
         run: |
           set +e
-          docker run --rm --network host \
-            -v "${{ github.workspace }}:/zap/wrk/:rw" \
+          docker run --rm --user 0 --network host \
+            -v "${{ github.workspace }}:/zap/wrk:rw" \
+            -w /zap/wrk \
             zaproxy/zap-stable:2.15.0 \
             zap-baseline.py \
             -t http://127.0.0.1:8002 \
-            -r /zap/wrk/zap.html \
-            -J /zap/wrk/zap.json
+            -r zap.html \
+            -J zap.json
           zap_status=$?
           set -e
           test -f zap.json
-          python - <<'PY'
+          ZAP_STATUS="$zap_status" python - <<'PY'
           import json
+          import os
           import sys
 
           with open('zap.json', encoding='utf-8') as report_file:
@@ -234,6 +266,7 @@ jobs:
               print('High or critical ZAP alerts:')
               print('\n'.join(sorted(set(high_or_critical))))
               sys.exit(1)
+          zap_status = os.environ['ZAP_STATUS']
           print(f'ZAP completed with scanner status {zap_status}; no high or critical alerts found.')
           PY
       - name: Upload ZAP reports

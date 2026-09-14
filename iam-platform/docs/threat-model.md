@@ -72,6 +72,9 @@ Client -> FastAPI authentication/authorization boundary -> PostgreSQL data bound
 | TM-11 | Add unsupported fields or malformed object identifiers to mutation requests | Mass assignment or validation bypass | Route allow-lists and framework UUID validation; payload tests |
 | TM-12 | Corrupt a stored password verifier | Authentication error disclosure or availability failure | Fail-closed verifier handling; malformed-verifier test |
 | TM-13 | Accumulate old login failures across successful sessions | Avoidable account lockout | Reset failure state after successful login; recovery test |
+| TM-14 | Steal database contents and reuse stored session credentials | Session impersonation | Store only SHA-256 session digests; hash-session test |
+| TM-15 | Submit malformed or mass-assignment request bodies | Validation bypass or state corruption | Strict Pydantic models with forbidden extra fields; API validation tests |
+| TM-16 | Trigger an unexpected database or service failure | Information disclosure or unsafe continuation | Global generic 500 boundary and fail-closed operation flow; error test |
 
 ## Test traceability
 
@@ -84,4 +87,7 @@ types, constraints, expiry comparisons, and deployment wiring; run them with
 ## Residual risk
 
 TLS termination, secret storage, distributed throttling, MFA, external audit immutability, and
-operational alerting remain deployment responsibilities or future V2 work.
+operational alerting remain deployment responsibilities or future V2 work. Session identifiers are
+still bearer credentials: anyone who obtains the raw header value can act as that user until
+expiration or revocation. V1 intentionally does not bind sessions to IP addresses, devices, or
+browsers because those controls create reliability and legitimate-client mobility problems.
