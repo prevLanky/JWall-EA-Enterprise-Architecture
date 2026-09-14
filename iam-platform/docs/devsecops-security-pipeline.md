@@ -150,8 +150,8 @@ fails the job.
 
 ### 5. Syft SBOM generation and Trivy CVE verification
 
-The `sbom` job uses `anchore/syft:v1.18.1` followed by `aquasec/trivy:0.59.1`. Syft produces the
-inventory and Trivy consumes that exact inventory for a second, explicit CVE check:
+The `sbom` job uses `anchore/syft:v1.18.1` followed by `aquasec/trivy:0.59.1`. Syft produces an
+SPDX inventory and Trivy consumes that exact inventory for a second, explicit CVE check:
 
 1. Checks out the repository.
 2. Installs the dependencies from `requirements.txt` into the temporary
@@ -160,11 +160,11 @@ inventory and Trivy consumes that exact inventory for a second, explicit CVE che
 3. Mounts the checkout into the Syft container as `/repo`.
 4. Scans `/repo/iam-platform`, including the temporary installed Python package metadata and
     dependency manifests.
-5. Writes a CycloneDX JSON document to `sbom.cdx.json`.
-6. Runs `trivy sbom /repo/sbom.cdx.json` against the generated CycloneDX document.
+5. Writes an SPDX JSON document to `sbom.spdx.json`.
+6. Runs `trivy sbom /repo/sbom.spdx.json` against the generated SPDX document.
 7. Writes the SBOM vulnerability results to `sbom-trivy.sarif`.
 8. Fails on High or Critical CVEs, including unfixed findings, and uploads both files as the
-    `cyclonedx-sbom-and-cve-report` artifact.
+    `spdx-sbom-and-cve-report` artifact.
 
 SBOM generation and SBOM scanning must both succeed. The output is a source/dependency inventory,
 not an image SBOM, because this repository has no application Dockerfile or application image
@@ -222,7 +222,8 @@ artifact needed to investigate the finding.
 - **Semgrep** uses maintained community rules for Python security patterns without adding a custom ruleset.
 - **Gitleaks** detects high-confidence credentials and tokens using its maintained detector database.
 - **Trivy** covers both Python dependency vulnerabilities and supported repository configuration/IaC findings.
-- **Syft** creates a CycloneDX inventory that can be retained with the workflow run. It is a source/dependency SBOM because this repository does not build an application image.
+- **Syft** creates an SPDX inventory that can be retained with the workflow run. It is a
+    source/dependency SBOM because this repository does not build an application image.
 - **OWASP ZAP** provides a free baseline scan of the actual FastAPI HTTP surface in a private, temporary CI environment.
 
 ## Running locally
@@ -249,7 +250,7 @@ The scanner commands used by CI can be run locally when the corresponding tools 
 semgrep scan --config p/python --config p/security-audit iam-platform --sarif --output semgrep.sarif --error
 gitleaks detect --source . --report-format sarif --report-path gitleaks.sarif --no-banner --exit-code 1
 trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL iam-platform
-syft dir:iam-platform -o cyclonedx-json=sbom.cdx.json
+syft dir:iam-platform -o spdx-json=sbom.spdx.json
 ```
 
 For DAST, start the API against a temporary local PostgreSQL instance, verify `/health`, and run the pinned ZAP container command from the workflow. Do not point ZAP at production.

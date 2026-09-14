@@ -154,20 +154,20 @@ jobs:
       - name: Resolve Python dependencies for SBOM
         working-directory: iam-platform
         run: python -m pip install --target .ci-sbom-site --requirement requirements.txt
-      - name: Generate CycloneDX source and dependency SBOM
+      - name: Generate SPDX source and dependency SBOM
         run: >-
           docker run --rm
           -v "${{ github.workspace }}:/repo"
           anchore/syft:v1.18.1
           dir:/repo/iam-platform
-          -o cyclonedx-json=/repo/sbom.cdx.json
+          -o spdx-json=/repo/sbom.spdx.json
       - name: Scan generated SBOM for CVEs
         run: |
           set +e
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/repo" \
             aquasec/trivy:0.59.1 \
-            sbom /repo/sbom.cdx.json \
+            sbom /repo/sbom.spdx.json \
             --format sarif \
             --output /repo/sbom-trivy.sarif \
             --severity CRITICAL,HIGH \
@@ -184,9 +184,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: cyclonedx-sbom-and-cve-report
+          name: spdx-sbom-and-cve-report
           path: |
-            sbom.cdx.json
+            sbom.spdx.json
             sbom-trivy.sarif
           if-no-files-found: error
 

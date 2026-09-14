@@ -32,8 +32,8 @@ uvicorn app.main:app --reload
 ```
 
 The FastAPI, Starlette, httpx, and AnyIO versions are intentionally pinned together because they
-share the test-client compatibility boundary. Keeping these versions aligned avoids deprecation
-warnings from the framework test client during local and CI test runs.
+share the test-client compatibility boundary. The test configuration filters the known upstream
+test-client deprecation warning; application warnings and errors remain visible.
 
 The API is available at `http://127.0.0.1:8002`. The schema is initialized at startup using
 the SQL in `docs/schema.sql`; there is deliberately no migration framework yet. Docker Compose
