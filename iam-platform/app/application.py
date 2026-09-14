@@ -1,7 +1,8 @@
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from .api.routes import create_router
 from .domain.iam import IamService
@@ -22,6 +23,11 @@ def create_app(service: IamService, startup_action: StartupAction | None = None)
         yield
 
     application = FastAPI(title="IAM Platform", lifespan=lifespan)
+
+    @application.exception_handler(Exception)
+    async def unexpected_error_handler(_: Request, __: Exception) -> JSONResponse:
+        return JSONResponse(status_code=500, content={"detail": "internal server error"})
+
     application.include_router(create_router(service))
 
     @application.get("/")

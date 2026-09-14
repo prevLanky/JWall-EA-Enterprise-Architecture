@@ -13,16 +13,27 @@ check over the user's direct roles and each role's permissions. The protected op
 only after that check succeeds. A denied decision is audited before returning `403`; audit logging
 is evidence and never a substitute for prevention.
 
+Structured HTTP bodies are validated by strict Pydantic request models before route logic runs.
+Unknown fields, wrong types, oversized values, and malformed UUID path parameters are rejected with
+controlled `422` responses. The service repeats business and security validation so direct callers
+cannot bypass the HTTP boundary. PostgreSQL remains the final enforcement point for uniqueness,
+foreign keys, required values, and relationship integrity.
+
 ## Authentication and sessions
 
-Passwords are hashed with bcrypt when installed, with a scrypt fallback in the service test
-adapter. Passwords, hashes, sessions, and credentials are never returned or logged. Login failures
-use a generic `401` response and increment a bounded failure counter, locking the account after five
-failures for fifteen minutes. Inactive and locked users cannot authenticate.
+Passwords must contain at least 12 characters and are hashed with bcrypt when installed, with a
+scrypt fallback in the service test adapter. Passwords, hashes, sessions, and credentials are
+never returned or logged. Login failures use a generic `401` response and increment a bounded
+failure counter, locking the account after five failures for fifteen minutes. Inactive and locked
+users cannot authenticate.
 
-Sessions are opaque, cryptographically random server-side identifiers. They have an eight-hour
-expiration, can be revoked by logout, and are rejected after expiration, revocation, or account
-deactivation. The API accepts the identifier in `X-Session-ID`.
+Sessions are opaque, cryptographically random bearer credentials. The raw identifier is returned
+only at login, hashed with SHA-256 before database storage, and never stored or placed in URLs.
+Requests hash the supplied `X-Session-ID` before lookup. Sessions have an eight-hour expiration,
+can be revoked by logout, and are rejected after expiration, revocation, or account deactivation.
+TLS is a deployment requirement because possession of the header value is sufficient to authenticate.
+The V1 schema now names the stored value `sessions.id_hash`; an existing database must be migrated
+or reset before deploying this change because the project does not yet include a migration framework.
 
 ## Authorization and privilege boundaries
 
@@ -36,6 +47,17 @@ privilege fields or forge audit events.
 Trusted server-side code records authentication outcomes, authorization decisions, privilege
 changes, administrative operations, and state changes. Audit records include actor, event, target,
 time, and result. Passwords, password hashes, session identifiers, tokens, and secrets are excluded.
+
+Expected application errors are mapped by the API boundary to `400`, `401`, `403`, `404`, `409`,
+and `429`. Unexpected exceptions are handled by the application error boundary and return only
+`500 internal server error`; database messages, SQL, stack traces, credentials, and file paths are
+not part of the response. Database uniqueness handling uses structured SQLSTATE information (with
+the SQLite test adapter's structured exception type), not human-readable database messages.
+
+All SQL values are parameterized. The only dynamic SQL is generated from service-owned field lists
+for partial updates; those fields are selected from fixed method arguments, never client-supplied
+column names. Authorization is evaluated explicitly per protected request and is not cached across
+requests in V1.
 
 ## Threats and testing
 

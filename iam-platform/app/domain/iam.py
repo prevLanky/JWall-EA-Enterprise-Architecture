@@ -12,12 +12,16 @@ except ImportError:  # requirements.txt supplies bcrypt in deployments.
     bcrypt = None
 
 from ..core.errors import conflict, forbidden, not_found, too_many_requests, unauthorized
-from ..core.validation import require_text
+from ..core.validation import require_password, require_text
 from .ports import ConnectionFactory, SqlParameter, SqlRow
 
 __all__ = ["IamService"]
 
 SESSION_LIFETIME = timedelta(hours=8)
+
+
+def _is_unique_violation(error: BaseException) -> bool:
+    return getattr(error, "sqlstate", None) == "23505" or error.__class__.__name__ == "IntegrityError"
 
 
 class IamService:
@@ -46,7 +50,7 @@ class IamService:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        require_text(password, "password")
+        password = require_password(password)
         if bcrypt is not None:
             return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         salt = secrets.token_bytes(16)
@@ -70,6 +74,10 @@ class IamService:
     def _now() -> datetime:
         return datetime.now(timezone.utc)
 
+    @staticmethod
+    def hash_session_id(session_id: str) -> str:
+        return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
     def create_user(self, username: str | None, display_name: str | None = None, password: str | None = None, email: str | None = None, actor_id: UUID | None = None) -> dict[str, str | bool]:
         username = require_text(username, "username")
         if password is None and email is None:
@@ -78,18 +86,18 @@ class IamService:
             try:
                 self._execute("INSERT INTO users (id, username, display_name) VALUES (%s, %s, %s)", (user_id, username, display_name))
             except Exception as error:
-                if "unique" in str(error).lower():
+                if _is_unique_violation(error):
                     raise conflict("username already exists") from error
                 raise
             return {"id": str(user_id), "username": username, "display_name": display_name}
         email = require_text(email, "email")
-        password = require_text(password, "password")
+        password = require_password(password)
         display_name = require_text(display_name or username, "display_name")
         user_id = uuid4()
         try:
             self._execute("INSERT INTO users (id, username, email, display_name, password_hash, is_active) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, email, display_name, self.hash_password(password), True))
         except Exception as error:
-            if "unique" in str(error).lower():
+            if _is_unique_violation(error):
                 raise conflict("username or email already exists") from error
             raise
         self._audit(actor_id, "USER_CREATED", "user", user_id, "success")
@@ -119,7 +127,7 @@ class IamService:
         try:
             self._execute(f"UPDATE users SET {', '.join(fields)} WHERE id = %s", tuple(values) + (user_id,))
         except Exception as error:
-            if "unique" in str(error).lower():
+            if _is_unique_violation(error):
                 raise conflict("email already exists") from error
             raise
         self._audit(actor_id, "USER_UPDATED", "user", user_id, "success")
@@ -138,14 +146,9 @@ class IamService:
         name = require_text(name, "name")
         group_id = uuid4()
         try:
-            try:
-                self._execute("INSERT INTO groups (id, name, description) VALUES (%s, %s, %s)", (group_id, name, description or ""))
-            except Exception as error:
-                if "no column named description" not in str(error).lower():
-                    raise
-                self._execute("INSERT INTO groups (id, name) VALUES (%s, %s)", (group_id, name))
+            self._execute("INSERT INTO groups (id, name, description) VALUES (%s, %s, %s)", (group_id, name, description or ""))
         except Exception as error:
-            if "unique" in str(error).lower():
+            if _is_unique_violation(error):
                 raise conflict("group already exists") from error
             raise
         self._audit(actor_id, "GROUP_CREATED", "group", group_id, "success")
@@ -191,14 +194,9 @@ class IamService:
         name = require_text(name, "name")
         role_id = uuid4()
         try:
-            try:
-                self._execute("INSERT INTO roles (id, name, description) VALUES (%s, %s, %s)", (role_id, name, description or ""))
-            except Exception as error:
-                if "no column named description" not in str(error).lower():
-                    raise
-                self._execute("INSERT INTO roles (id, name) VALUES (%s, %s)", (role_id, name))
+            self._execute("INSERT INTO roles (id, name, description) VALUES (%s, %s, %s)", (role_id, name, description or ""))
         except Exception as error:
-            if "unique" in str(error).lower():
+            if _is_unique_violation(error):
                 raise conflict("role already exists") from error
             raise
         self._audit(actor_id, "ROLE_CREATED", "role", role_id, "success")
@@ -253,7 +251,7 @@ class IamService:
         try:
             self._execute("INSERT INTO permissions (id, resource, action) VALUES (%s, %s, %s)", (permission_id, resource, action))
         except Exception as error:
-            if "unique" in str(error).lower():
+            if _is_unique_violation(error):
                 raise conflict("permission already exists") from error
             raise
         self._audit(actor_id, "PERMISSION_CREATED", "permission", permission_id, "success")
@@ -282,7 +280,7 @@ class IamService:
         try:
             self._execute(query, parameters)
         except Exception as error:
-            if "duplicate" in str(error).lower() or "unique" in str(error).lower():
+            if _is_unique_violation(error):
                 raise conflict(message) from error
             raise
 
@@ -347,7 +345,7 @@ class IamService:
         try:
             self._execute("INSERT INTO applications (id, name, description) VALUES (%s, %s, %s)", (application_id, name, description))
         except Exception as error:
-            if "unique" in str(error).lower():
+            if _is_unique_violation(error):
                 raise conflict("application already exists") from error
             raise
         self._audit(actor_id, "APPLICATION_CREATED", "application", application_id, "success")
@@ -378,7 +376,7 @@ class IamService:
         try:
             self._execute(f"UPDATE applications SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = %s", tuple(values) + (application_id,))
         except Exception as error:
-            if "unique" in str(error).lower():
+            if _is_unique_violation(error):
                 raise conflict("application already exists") from error
             raise
         self._audit(actor_id, "APPLICATION_UPDATED", "application", application_id, "success")
@@ -420,7 +418,7 @@ class IamService:
             raise unauthorized("invalid username or password")
         session_id = secrets.token_urlsafe(32)
         expires_at = self._now() + SESSION_LIFETIME
-        self._execute("INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (%s, %s, %s, %s)", (session_id, row[0], self._now(), expires_at))
+        self._execute("INSERT INTO sessions (id_hash, user_id, created_at, expires_at) VALUES (%s, %s, %s, %s)", (self.hash_session_id(session_id), row[0], self._now(), expires_at))
         if row[4]:
             self._execute("UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = %s WHERE id = %s", (self._now(), row[0]))
         self._audit(row[0], "LOGIN_SUCCESS", "user", row[0], "success")
@@ -432,7 +430,7 @@ class IamService:
 
     def bootstrap(self, username: str | None, password: str | None, email: str | None) -> None:
         username = require_text(username, "BOOTSTRAP_ADMIN_USERNAME")
-        password = require_text(password, "BOOTSTRAP_ADMIN_PASSWORD")
+        password = require_password(password, "BOOTSTRAP_ADMIN_PASSWORD")
         email = require_text(email, "BOOTSTRAP_ADMIN_EMAIL")
         existing = self._one("SELECT id FROM roles WHERE name = %s", ("Administrator",))
         role_id = UUID(str(existing[0])) if existing else UUID(str(self.create_role("Administrator", "Bootstrap administrator")["id"]))
@@ -445,23 +443,60 @@ class IamService:
         if self._one("SELECT 1 FROM user_roles WHERE user_id = %s AND role_id = %s", (user_id, role_id)) is None:
             self._relationship("INSERT INTO user_roles VALUES (%s, %s)", (user_id, role_id), "role is already assigned")
 
+    def seed_demo_users(self) -> None:
+        """Create repeatable local users for exercising V1 authorization behavior."""
+        permissions = {
+            action: self._permission_id("application", action)
+            for action in ("create", "read", "update", "delete", "deploy")
+        }
+        role_permissions = {
+            "Demo Reader": ("read",),
+            "Demo Operator": ("create", "read", "update", "deploy"),
+            "Demo Developer": tuple(permissions),
+        }
+        for role_name, actions in role_permissions.items():
+            role = self._role_id(role_name)
+            for action in actions:
+                if self._one("SELECT 1 FROM role_permissions WHERE role_id = %s AND permission_id = %s", (role, permissions[action])) is None:
+                    self._relationship("INSERT INTO role_permissions VALUES (%s, %s)", (role, permissions[action]), "permission is already assigned")
+
+        demo_users = (
+            ("demo-reader", "Demo Reader", "DemoReaderPassword1", "demo-reader@example.test", "Demo Reader"),
+            ("demo-operator", "Demo Operator", "DemoOperatorPassword1", "demo-operator@example.test", "Demo Operator"),
+            ("demo-developer", "Demo Developer", "DemoDeveloperPassword1", "demo-developer@example.test", "Demo Developer"),
+        )
+        for username, display_name, password, email, role_name in demo_users:
+            user = self._one("SELECT id FROM users WHERE username = %s", (username,))
+            user_id = UUID(str(user[0])) if user else UUID(str(self.create_user(username, display_name, password, email)["id"]))
+            role_id = self._role_id(role_name)
+            if self._one("SELECT 1 FROM user_roles WHERE user_id = %s AND role_id = %s", (user_id, role_id)) is None:
+                self._relationship("INSERT INTO user_roles VALUES (%s, %s)", (user_id, role_id), "role is already assigned")
+
+    def _permission_id(self, resource: str, action: str) -> UUID:
+        existing = self._one("SELECT id FROM permissions WHERE resource = %s AND action = %s", (resource, action))
+        if existing is not None:
+            return UUID(str(existing[0]))
+        return UUID(str(self.create_permission(resource, action)["id"]))
+
+    def _role_id(self, name: str) -> UUID:
+        existing = self._one("SELECT id FROM roles WHERE name = %s", (name,))
+        if existing is not None:
+            return UUID(str(existing[0]))
+        return UUID(str(self.create_role(name, "Local demonstration role")["id"]))
+
     def authenticate(self, session_id: str | None) -> UUID:
-        if not session_id:
+        if not session_id or len(session_id) > 512:
             raise unauthorized()
-        row = self._one("SELECT s.user_id, s.expires_at, s.revoked_at, u.is_active FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = %s", (session_id,))
+        row = self._one("SELECT s.user_id, s.expires_at, s.revoked_at, u.is_active FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id_hash = %s", (self.hash_session_id(session_id),))
         if row is None or row[2] is not None or row[1] <= self._now() or not row[3]:
             raise unauthorized()
         return UUID(str(row[0]))
 
     def logout(self, session_id: str | None, actor_id: UUID) -> None:
         if session_id:
-            self._execute("UPDATE sessions SET revoked_at = %s WHERE id = %s AND revoked_at IS NULL", (self._now(), session_id))
+            self._execute("UPDATE sessions SET revoked_at = %s WHERE id_hash = %s AND revoked_at IS NULL", (self._now(), self.hash_session_id(session_id)))
         self._audit(actor_id, "LOGOUT", "session", None, "success")
         self._audit(actor_id, "SESSION_REVOKED", "session", None, "success")
 
     def _audit(self, user_id: UUID | None, event_type: str, target_type: str, target_id: UUID | None, result: str, metadata: dict[str, str] | None = None) -> None:
-        try:
-            self._execute("INSERT INTO audit_events (timestamp, event_type, user_id, target_type, target_id, result, metadata) VALUES (%s, %s, %s, %s, %s, %s, %s)", (self._now(), event_type, user_id, target_type, target_id, result, str(metadata or {})))
-        except Exception as error:
-            if "no such table" not in str(error).lower() and "undefined table" not in str(error).lower():
-                raise
+        self._execute("INSERT INTO audit_events (timestamp, event_type, user_id, target_type, target_id, result, metadata) VALUES (%s, %s, %s, %s, %s, %s, %s)", (self._now(), event_type, user_id, target_type, target_id, result, str(metadata or {})))

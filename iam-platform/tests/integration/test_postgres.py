@@ -87,7 +87,7 @@ def test_postgres_protected_operation_distinguishes_401_and_403(integration_cont
 
     denied = client.get("/applications", headers={"X-Session-ID": session_id})
     assert denied.status_code == 403
-    assert client.post("/users", headers={"X-Session-ID": session_id}, json={}).status_code == 403
+    assert client.post("/users", headers={"X-Session-ID": session_id}, json={}).status_code == 422
     admin_id = service._one("SELECT id FROM users WHERE username = %s", (os.environ["BOOTSTRAP_ADMIN_USERNAME"],))[0]
     assert client.patch(f"/users/{admin_id}", headers={"X-Session-ID": session_id}, json={"display_name": "IDOR attempt"}).status_code == 403
     assert service._one("SELECT 1 FROM audit_events WHERE event_type = %s AND user_id = %s", ("AUTHORIZATION_DENIED", UUID(str(user["id"]))),) is not None
@@ -116,8 +116,8 @@ def test_postgres_inactive_and_expired_sessions_are_rejected(integration_context
 
     expired_session = "expired-integration-session"
     service._execute(
-        "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP - INTERVAL '1 minute')",
-        (expired_session, UUID(str(inactive["id"]))),
+        "INSERT INTO sessions (id_hash, user_id, created_at, expires_at) VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP - INTERVAL '1 minute')",
+        (IamService.hash_session_id(expired_session), UUID(str(inactive["id"]))),
     )
     assert client.get("/auth/session", headers={"X-Session-ID": expired_session}).status_code == 401
 
@@ -213,9 +213,9 @@ def test_postgres_duplicate_identity_and_relationship_attempts_are_rejected(inte
         },
     )
     headers = {"X-Session-ID": login.json()["session_id"]}
-    first = client.post("/users", headers=headers, json={"username": "duplicate-user", "email": "duplicate@example.test", "password": "Password-1", "display_name": "Duplicate User"})
+    first = client.post("/users", headers=headers, json={"username": "duplicate-user", "email": "duplicate@example.test", "password": "Password-12345", "display_name": "Duplicate User"})
     assert first.status_code == 201
-    duplicate = client.post("/users", headers=headers, json={"username": "duplicate-user", "email": "other@example.test", "password": "Password-1", "display_name": "Duplicate User"})
+    duplicate = client.post("/users", headers=headers, json={"username": "duplicate-user", "email": "other@example.test", "password": "Password-12345", "display_name": "Duplicate User"})
     assert duplicate.status_code == 409
 
     group = client.post("/groups", headers=headers, json={"name": "duplicate-membership-group"})
@@ -238,7 +238,7 @@ def test_postgres_foreign_keys_and_cascades_remove_security_relationships(integr
         },
     )
     headers = {"X-Session-ID": login.json()["session_id"]}
-    user = client.post("/users", headers=headers, json={"username": "cascade-user", "email": "cascade@example.test", "password": "Password-1", "display_name": "Cascade User"}).json()
+    user = client.post("/users", headers=headers, json={"username": "cascade-user", "email": "cascade@example.test", "password": "Password-12345", "display_name": "Cascade User"}).json()
     role = client.post("/roles", headers=headers, json={"name": "cascade-role"}).json()
     permission = client.post("/permissions", headers=headers, json={"resource": "cascade", "action": "read"}).json()
 
@@ -263,10 +263,10 @@ def test_postgres_rejected_payloads_do_not_mutate_users(integration_context: tup
         },
     )
     headers = {"X-Session-ID": login.json()["session_id"]}
-    user = client.post("/users", headers=headers, json={"username": "payload-user", "email": "payload@example.test", "password": "Password-1", "display_name": "Original Name"}).json()
+    user = client.post("/users", headers=headers, json={"username": "payload-user", "email": "payload@example.test", "password": "Password-12345", "display_name": "Original Name"}).json()
 
     forged = client.patch(f"/users/{user['id']}", headers=headers, json={"display_name": "Changed", "roles": ["Administrator"]})
-    assert forged.status_code == 400
+    assert forged.status_code == 422
     assert service.get_user(UUID(user["id"]))["display_name"] == "Original Name"
     assert client.get("/users/not-a-uuid", headers=headers).status_code == 422
 
@@ -274,9 +274,9 @@ def test_postgres_rejected_payloads_do_not_mutate_users(integration_context: tup
 def test_postgres_authorization_denial_is_recorded_before_state_change(integration_context: tuple[IamService, TestClient]) -> None:
     """Verify a normal user's forbidden application mutation is denied and auditable without changing data."""
     service, client = integration_context
-    user = service.create_user("denied-integration-user", "Denied Integration User", "Password-1", "denied-integration@example.test")
+    user = service.create_user("denied-integration-user", "Denied Integration User", "Password-12345", "denied-integration@example.test")
     application = service.create_application("denied-integration-app", "original", UUID(user["id"]))
-    session_id = client.post("/auth/login", json={"username": "denied-integration-user", "password": "Password-1"}).json()["session_id"]
+    session_id = client.post("/auth/login", json={"username": "denied-integration-user", "password": "Password-12345"}).json()["session_id"]
 
     response = client.patch(f"/applications/{application['id']}", headers={"X-Session-ID": session_id}, json={"description": "forged"})
     assert response.status_code == 403

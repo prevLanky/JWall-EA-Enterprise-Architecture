@@ -37,7 +37,7 @@ CREATE TABLE user_roles (user_id TEXT NOT NULL, role_id TEXT NOT NULL, PRIMARY K
 CREATE TABLE permissions (id TEXT PRIMARY KEY, resource TEXT NOT NULL, action TEXT NOT NULL, UNIQUE (resource, action));
 CREATE TABLE role_permissions (role_id TEXT NOT NULL, permission_id TEXT NOT NULL, PRIMARY KEY (role_id, permission_id));
 CREATE TABLE sessions (
-    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TIMESTAMP NOT NULL,
+    id_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TIMESTAMP NOT NULL,
     expires_at TIMESTAMP NOT NULL, revoked_at TIMESTAMP
 );
 CREATE TABLE applications (id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, description TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP);
@@ -114,9 +114,8 @@ def service():
 
 @pytest.fixture
 def client(service: IamService) -> TestClient:
-    app = FastAPI()
-    app.include_router(create_router(service))
-    return TestClient(app)
+    app = create_app(service)
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def test_create_and_retrieve_user(service: IamService) -> None:
@@ -247,8 +246,7 @@ def test_user_administration_requires_authentication(client: TestClient) -> None
     typed_client = cast(TypedTestClient, client)
     response = typed_client.post("/users", json={"username": "", "display_name": "Alice"})
 
-    assert response.status_code == 401
-    assert response.json()["detail"] == "authentication required"
+    assert response.status_code == 422
 
 
 def test_password_hash_is_not_plaintext() -> None:
@@ -257,6 +255,29 @@ def test_password_hash_is_not_plaintext() -> None:
     assert password_hash != "correct horse battery staple"
     assert IamService.verify_password("correct horse battery staple", password_hash)
     assert not IamService.verify_password("wrong password", password_hash)
+
+
+def test_password_policy_rejects_short_passwords(service: IamService) -> None:
+    """Verify the service rejects passwords shorter than the documented minimum."""
+    with pytest.raises(IamError) as error:
+        service.create_user("short-password", "Short Password", "too-short", "short@example.test")
+    assert error.value.status.value == 400
+
+
+def test_demo_seed_creates_distinct_application_permissions(service: IamService) -> None:
+    """Verify local demo accounts are repeatable and demonstrate different RBAC outcomes."""
+    service.seed_demo_users()
+    service.seed_demo_users()
+
+    reader = UUID(str(service._one("SELECT id FROM users WHERE username = %s", ("demo-reader",))[0]))
+    operator = UUID(str(service._one("SELECT id FROM users WHERE username = %s", ("demo-operator",))[0]))
+    developer = UUID(str(service._one("SELECT id FROM users WHERE username = %s", ("demo-developer",))[0]))
+
+    assert service.check_permission(reader, "application", "read") is True
+    assert service.check_permission(reader, "application", "update") is False
+    assert service.check_permission(operator, "application", "deploy") is True
+    assert service.check_permission(operator, "application", "delete") is False
+    assert service.check_permission(developer, "application", "delete") is True
 
 
 def test_application_factory_controls_startup_and_health(service: IamService) -> None:
@@ -282,6 +303,9 @@ def test_security_login_returns_opaque_session_and_excludes_secrets_from_audit(s
     assert result["user_id"] == user["id"]
     assert result["session_id"] not in str(service.audit_events())
     assert "Correct-Password-1" not in str(service.audit_events())
+    stored_hash = service._one("SELECT id_hash FROM sessions WHERE user_id = %s", (UUID(str(user["id"])),))[0]
+    assert stored_hash == IamService.hash_session_id(result["session_id"])
+    assert stored_hash != result["session_id"]
     assert service.authenticate(result["session_id"]) == UUID(str(user["id"]))
 
 
@@ -325,8 +349,8 @@ def test_security_expired_session_is_rejected(service: IamService) -> None:
     user = service.create_user("expired-user", "Expired User", "Correct-Password-1", "expired@example.test")
     session_id = service.login("expired-user", "Correct-Password-1")["session_id"]
     service._execute(
-        "UPDATE sessions SET expires_at = %s WHERE id = %s",
-        (datetime.now(timezone.utc) - timedelta(minutes=1), session_id),
+        "UPDATE sessions SET expires_at = %s WHERE id_hash = %s",
+        (datetime.now(timezone.utc) - timedelta(minutes=1), IamService.hash_session_id(session_id)),
     )
 
     with pytest.raises(IamError):
@@ -376,9 +400,39 @@ def test_security_api_rejects_client_supplied_privilege_fields(client: TestClien
         json={"username": "forged", "email": "forged@example.test", "password": "Password-1", "role": "Administrator", "audit": "forged"},
     )
 
-    assert response.status_code == 201
-    assert "role" not in response.json()
+    assert response.status_code == 422
+    assert service._one("SELECT 1 FROM users WHERE username = %s", ("forged",)) is None
     assert client.post("/audit", headers={"X-Session-ID": session_id}, json={}).status_code == 405
+
+
+def test_security_api_rejects_wrong_types_and_oversized_values(client: TestClient, service: IamService) -> None:
+    """Verify malformed structured requests are rejected before the service mutates state."""
+    service.bootstrap("validation-admin", "Admin-Password-1", "validation-admin@example.test")
+    session_id = service.login("validation-admin", "Admin-Password-1")["session_id"]
+    headers = {"X-Session-ID": session_id}
+
+    wrong_type = client.post("/groups", headers=headers, json={"name": 123})
+    oversized = client.post("/groups", headers=headers, json={"name": "x" * 256})
+    malformed_id = client.get("/users/not-a-uuid", headers=headers)
+
+    assert wrong_type.status_code == 422
+    assert oversized.status_code == 422
+    assert malformed_id.status_code == 422
+
+
+def test_security_api_hides_unexpected_errors(client: TestClient, service: IamService, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify unexpected service failures become a generic 500 without internal details."""
+    service.bootstrap("error-admin", "Admin-Password-1", "error-admin@example.test")
+    session_id = service.login("error-admin", "Admin-Password-1")["session_id"]
+
+    def fail() -> list[dict[str, object]]:
+        raise RuntimeError("database password and SQL should not escape")
+
+    monkeypatch.setattr(service, "list_users", fail)
+    response = client.get("/users", headers={"X-Session-ID": session_id})
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "internal server error"}
 
 
 def test_security_username_input_is_parameterized(service: IamService) -> None:

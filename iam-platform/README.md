@@ -57,6 +57,22 @@ Login with `POST /auth/login`. Send the returned opaque `session_id` in the `X-S
 header for protected requests. `401` means the session is missing or invalid; `403` means the
 authenticated user lacks the required permission.
 
+### Local demo users
+
+The development launcher sets `IAM_SEED_DEMO_USERS=true` internally and creates these repeatable
+local-only accounts after bootstrapping the administrator. They are not created by normal
+production startup:
+
+| Username | Password | Role | Application permissions |
+| --- | --- | --- | --- |
+| `demo-reader` | `DemoReaderPassword1` | Demo Reader | `read` |
+| `demo-operator` | `DemoOperatorPassword1` | Demo Operator | `create`, `read`, `update`, `deploy` |
+| `demo-developer` | `DemoDeveloperPassword1` | Demo Developer | `create`, `read`, `update`, `delete`, `deploy` |
+
+Use these accounts to verify `403` authorization behavior against the protected application
+endpoints. These are intentionally predictable dummy credentials for local development only and
+must never be reused outside the local database.
+
 To mount IAM into another FastAPI application, construct an `IamService` with the host's
 connection factory and include `create_router(service)`. For a standalone application with a
 custom startup action, use `create_app(service, startup_action)` from `app.application`.

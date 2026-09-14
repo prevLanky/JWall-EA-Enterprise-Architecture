@@ -25,6 +25,7 @@ def _load_local_environment() -> None:
 
 def main() -> None:
     _load_local_environment()
+    os.environ.setdefault("IAM_SEED_DEMO_USERS", "true")
     auto_start_postgres()
     prepare_database(reset=True)
     uvicorn.run(
