@@ -331,6 +331,42 @@ def test_browser_login_page_is_available(service: IamService, monkeypatch: pytes
     assert "/login" not in response.text.split("<title>", 1)[0]
 
 
+def test_admin_portal_sets_browser_security_headers(service: IamService) -> None:
+    """Verify browser-facing shells include cache, MIME, referrer, and CSP protections."""
+    with TestClient(create_app(service)) as application_client:
+        response = application_client.get("/admin")
+
+    assert response.headers["content-security-policy"].startswith("default-src 'self'")
+    assert "script-src 'self'" in response.headers["content-security-policy"]
+    assert "unsafe-inline" not in response.headers["content-security-policy"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_admin_portal_assets_are_same_origin_static_files(service: IamService) -> None:
+    """Verify the portal shell references same-origin external assets instead of inline scripts."""
+    with TestClient(create_app(service)) as application_client:
+        response = application_client.get("/admin")
+        script = application_client.get("/static/admin.js")
+        stylesheet = application_client.get("/static/admin.css")
+
+    assert response.status_code == 200
+    assert '/static/admin.js' in response.text
+    assert '<script>' not in response.text
+    assert script.status_code == 200
+    assert stylesheet.status_code == 200
+
+
+def test_admin_portal_is_available(service: IamService) -> None:
+    """Verify the admin portal is a browser shell while its data remains API-protected."""
+    with TestClient(create_app(service)) as application_client:
+        response = application_client.get("/admin")
+
+    assert response.status_code == 200
+    assert "IAM Admin Portal" in response.text
+    assert "/static/admin.js" in response.text
+
+
 def test_security_login_returns_opaque_session_and_excludes_secrets_from_audit(service: IamService) -> None:
     """Verify successful authentication creates a server-side session without leaking secrets."""
     user = service.create_user("secure-user", "Secure User", "Correct-Password-1", "secure@example.test")

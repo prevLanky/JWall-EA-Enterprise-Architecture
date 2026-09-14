@@ -177,10 +177,28 @@ Additional security boundaries:
 
 **Controls:** Semgrep, Gitleaks, Trivy, Syft/SPDX + Trivy SBOM scan, Pytest/PostgreSQL, ZAP, final gate, read-only GitHub permissions.
 
+### TM-15: Stored or reflected XSS through the admin portal
+
+**Path:** attacker-controlled username, application name, or audit metadata is rendered into the browser portal.
+
+**Impact:** JavaScript execution in the IAM origin, potentially exposing the `sessionStorage` bearer session.
+
+**Controls:** portal rendering uses DOM element creation and `textContent`; no `innerHTML` or `document.write`; CSP, `nosniff`, `no-store`, and `no-referrer` headers are sent; session values are not placed in URLs or rendered data.
+
+**Residual risk:** the portal now uses same-origin external CSS/JavaScript with `script-src 'self'` and `style-src 'self'`. A future production hardening step could add CSP nonces/hashes for any unavoidable inline content, but the current portal has no inline script/style blocks.
+
+### TM-16: Stale browser session after server revocation
+
+**Path:** a revoked/expired session remains in `sessionStorage` and the user continues using the portal.
+
+**Impact:** confusing failures or accidental repeated use of an invalid bearer value.
+
+**Controls:** portal `401` responses clear the storage value and redirect to `/login`; logout clears storage after server revocation; server-side session expiry/revocation remains authoritative.
+
 ## 6. Security evidence
 
-- Unit/security suite covers 45 focused tests.
-- Full local suite with PostgreSQL has passed 56 tests.
+- Unit/security suite covers 48 focused tests.
+- Full local suite with PostgreSQL has passed 60 tests.
 - CI scanner reports are uploaded as artifacts.
 - Database schema contains foreign keys, uniqueness, session digests, encrypted TOTP fields, and throttle state.
 - Documentation and code keep authentication, authorization, audit, and application operations in explicit modules.

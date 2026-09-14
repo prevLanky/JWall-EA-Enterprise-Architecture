@@ -143,3 +143,21 @@ Groups such as `Platform Observers`, `Release Operators`, and `Engineering` demo
 | Valid session | Required permission present | Operation result |
 | Valid session | Target object missing | `404` before operation |
 | Malformed request | Not evaluated | `422` |
+
+## 9. Browser admin portal
+
+`GET /admin` serves a lightweight same-origin administration portal. It is a browser shell rather
+than a second authorization system:
+
+- `/login` creates the existing session and stores the raw bearer value in browser `sessionStorage`.
+- `/admin` sends that value as `X-Session-ID` for each data request.
+- Users, groups, roles, permissions, applications, and audit panels call the existing protected
+  API endpoints.
+- Application creation is exposed as a small portal action; update/delete/relationship operations
+  remain available through the API/Swagger surface until their portal controls are added.
+- A normal user can open the page, but receives the API's `401`/`403` responses for protected data.
+- No password, session hash, TOTP secret, or authorization decision is duplicated in the page.
+
+The distinction is deliberate: presentation access to `/admin` is separate from authorization to
+perform operations. The API remains authoritative even if a user manually calls an endpoint or
+modifies the browser UI.

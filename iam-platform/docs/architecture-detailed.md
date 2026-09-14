@@ -46,6 +46,14 @@ Owns HTTP concerns:
 
 The API layer does not own SQL, password hashing, role evaluation, or audit writes.
 
+### Browser surface: `app/web.py`
+
+The browser login helper and admin portal are same-origin HTML/JavaScript responses composed by the
+FastAPI application. They are intentionally thin clients: authentication, session validation,
+authorization, validation, persistence, and audit behavior remain in the existing API/domain
+layers. Browser state uses `sessionStorage`; the API continues to use `X-Session-ID` rather than
+cookies.
+
 ### Core: `app/core`
 
 Owns cross-cutting primitives:

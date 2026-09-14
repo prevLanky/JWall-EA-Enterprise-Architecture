@@ -1,0 +1,30 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; --ink: #182235; --muted: #607089; --line: #dbe2ec; --blue: #2459d6; --soft: #f4f7fb; --danger: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--soft); color: var(--ink); }
+header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 2rem; background: #13213a; color: white; }
+header h1 { margin: 0; font-size: 1.2rem; }
+header small { color: #c7d3e8; }
+main { width: min(1500px, 94vw); margin: 1.5rem auto 3rem; }
+.toolbar, .panel { background: white; border: 1px solid var(--line); border-radius: 10px; padding: 1rem; box-shadow: 0 4px 14px #1822350d; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+button { border: 0; border-radius: 6px; padding: .62rem .85rem; background: var(--blue); color: white; cursor: pointer; font: inherit; }
+button.secondary { background: #e8edf6; color: var(--ink); }
+button.danger { background: var(--danger); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1rem; }
+.panel h2 { display: flex; align-items: center; justify-content: space-between; margin: 0 0 .8rem; font-size: 1rem; }
+.panel h2 button { font-size: .82rem; padding: .4rem .6rem; }
+.table-wrap { overflow-x: auto; max-height: 330px; }
+table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+th, td { padding: .55rem .45rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 650; white-space: nowrap; }
+.empty { color: var(--muted); padding: 1rem 0; }
+.modal { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: #08132699; }
+.modal[hidden], [hidden] { display: none; }
+.modal form { width: min(94vw, 420px); background: white; border-radius: 10px; padding: 1.25rem; }
+label { display: block; margin: .8rem 0 .3rem; font-weight: 650; }
+input, textarea { width: 100%; border: 1px solid #aeb9c9; border-radius: 6px; padding: .65rem; font: inherit; }
+.form-actions { display: flex; gap: .6rem; margin-top: 1rem; }
+.form-actions button { flex: 1; }
+#status { min-height: 1.4rem; color: var(--muted); }
+#status.error { color: var(--danger); }
+@media (max-width: 620px) { header { padding: 1rem; } main { width: 94vw; } .toolbar { align-items: flex-start; flex-direction: column; } .grid { grid-template-columns: 1fr; } }

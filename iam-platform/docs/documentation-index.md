@@ -21,7 +21,8 @@ This is the documentation map for the IAM Platform V1 and Phase 1 implementation
 - IAM core modularization: complete.
 - Password authentication and server-side sessions: complete.
 - Password change, reset architecture, session listing, revocation, and revoke-all: complete.
-- TOTP MFA with encrypted secrets and throttling: complete.
+- TOTP MFA with encrypted secrets, re-authentication, throttling, and clock-skew policy: complete.
+- Same-origin admin portal with strict external-asset CSP: complete.
 - OAuth 2.0, OIDC, JWT/JWKS, workload identity, SCIM, federation, Secrets Broker, and PKI: intentionally deferred.
 
 ## Security reading order

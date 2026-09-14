@@ -17,6 +17,18 @@ The global handler does not expose exception messages, SQL, stack traces, or fil
 
 ## 2. API interfaces
 
+### Browser admin interface
+
+```text
+GET /login -> browser login helper
+GET /admin -> admin portal shell
+```
+
+The portal has no privileged server-side channel. It reads the session from browser
+`sessionStorage`, sends `X-Session-ID`, and renders the API response. The server therefore remains
+the authority for every panel and action. Opening `/admin` alone does not authenticate or grant
+access.
+
 ### Session interface
 
 ```text

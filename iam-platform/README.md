@@ -93,6 +93,11 @@ The page calls the same login, session, and logout endpoints as the API, keeps t
 browser `sessionStorage`, and shows demo-account buttons during development. It does not replace
 the API authentication flow or store passwords on the server.
 
+After signing in, open [http://127.0.0.1:8002/admin](http://127.0.0.1:8002/admin) for the small
+administration portal. It displays users, groups, roles, permissions, applications, and audit
+events, and includes an application-create action. All portal data and operations are still
+authorized by the existing API; an administrator session is required for the IAM panels.
+
 ### Local demo users
 
 The development launcher sets `IAM_SEED_DEMO_USERS=true` internally and creates these repeatable

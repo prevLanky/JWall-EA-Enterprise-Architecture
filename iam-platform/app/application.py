@@ -2,13 +2,16 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api.routes import create_router
 from .domain.iam import IamService
+from .web import ADMIN_PAGE
 
 
 StartupAction = Callable[[], None]
@@ -126,6 +129,13 @@ updateSessionControls();
 </body>
 </html>"""
 
+WEB_SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
+
 
 def create_app(service: IamService, startup_action: StartupAction | None = None) -> FastAPI:
     """Build an IAM API that can be mounted into a larger FastAPI application."""
@@ -137,6 +147,8 @@ def create_app(service: IamService, startup_action: StartupAction | None = None)
         yield
 
     application = FastAPI(title="IAM Platform", lifespan=lifespan)
+    static_directory = Path(__file__).with_name("static")
+    application.mount("/static", StaticFiles(directory=static_directory), name="static")
 
     @application.exception_handler(Exception)
     async def unexpected_error_handler(_: Request, __: Exception) -> JSONResponse:
@@ -147,7 +159,11 @@ def create_app(service: IamService, startup_action: StartupAction | None = None)
     @application.get("/login", response_class=HTMLResponse, include_in_schema=False)
     def login_page() -> HTMLResponse:
         demo_enabled = os.environ.get("IAM_SEED_DEMO_USERS", "false").lower() == "true"
-        return HTMLResponse(LOGIN_PAGE.replace("__DEMO_ENABLED__", "true" if demo_enabled else "false"))
+        return HTMLResponse(LOGIN_PAGE.replace("__DEMO_ENABLED__", "true" if demo_enabled else "false"), headers=WEB_SECURITY_HEADERS)
+
+    @application.get("/admin", response_class=HTMLResponse, include_in_schema=False)
+    def admin_page() -> HTMLResponse:
+        return HTMLResponse(ADMIN_PAGE, headers=WEB_SECURITY_HEADERS)
 
     @application.get("/")
     def root() -> dict[str, str]:

@@ -128,7 +128,7 @@ The executable security tests are documented by docstrings in `tests/unit/test_i
 
 Run the offline security suite with `python -m pytest tests/unit/test_iam.py -q`. PostgreSQL
 compatibility tests are opt-in and require the integration environment described in the README.
-The latest complete local unit and PostgreSQL-backed suite contains 56 passing tests.
+The latest complete local unit and PostgreSQL-backed suite contains 60 passing tests.
 
 ## Assumptions and limitations
 

@@ -10,6 +10,8 @@ iam-platform/
 │   ├── domain/          Identity, authentication, authorization, audit, application, and database protocols
 │   ├── infrastructure/  PostgreSQL schema/connection and Docker runtime adapter
 │   ├── dev/             Development-only reset/reload launcher
+│   ├── static/          Same-origin portal CSS and JavaScript assets
+│   ├── web.py           Browser login/admin HTML shells
 │   ├── application.py   FastAPI composition root
 │   └── main.py          Production application entry point
 ├── tests/

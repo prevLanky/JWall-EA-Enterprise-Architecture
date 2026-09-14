@@ -15,6 +15,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 from app.api.routes import create_router
+from app.application import create_app
 from app.infrastructure.database import connection, prepare_database
 from app.domain.iam import IamService
 
@@ -38,8 +39,7 @@ def integration_context() -> Generator[tuple[IamService, TestClient], None, None
         os.environ["BOOTSTRAP_ADMIN_PASSWORD"],
         os.environ["BOOTSTRAP_ADMIN_EMAIL"],
     )
-    application = FastAPI()
-    application.include_router(create_router(service))
+    application = create_app(service)
     with TestClient(application) as client:
         yield service, client
 
@@ -91,6 +91,24 @@ def test_postgres_protected_operation_distinguishes_401_and_403(integration_cont
     admin_id = service._one("SELECT id FROM users WHERE username = %s", (os.environ["BOOTSTRAP_ADMIN_USERNAME"],))[0]
     assert client.patch(f"/users/{admin_id}", headers={"X-Session-ID": session_id}, json={"display_name": "IDOR attempt"}).status_code == 403
     assert service._one("SELECT 1 FROM audit_events WHERE event_type = %s AND user_id = %s", ("AUTHORIZATION_DENIED", UUID(str(user["id"]))),) is not None
+    assert user["id"]
+
+
+def test_postgres_authorization_matrix_keeps_portal_public_but_api_protected(integration_context: tuple[IamService, TestClient]) -> None:
+    """Verify the admin shell is public while IAM/application APIs enforce session and permission checks."""
+    service, client = integration_context
+    assert client.get("/admin").status_code == 200
+    assert client.get("/users").status_code == 401
+
+    user = service.create_user("matrix-user", "Matrix User", "Matrix-Password-1", "matrix@example.test")
+    user_login = client.post("/auth/login", json={"username": "matrix-user", "password": "Matrix-Password-1"})
+    user_session = user_login.json()["session_id"]
+    assert client.get("/users", headers={"X-Session-ID": user_session}).status_code == 403
+    assert client.get("/applications", headers={"X-Session-ID": user_session}).status_code == 403
+
+    admin_login = client.post("/auth/login", json={"username": os.environ["BOOTSTRAP_ADMIN_USERNAME"], "password": os.environ["BOOTSTRAP_ADMIN_PASSWORD"]})
+    admin_session = admin_login.json()["session_id"]
+    assert client.get("/users", headers={"X-Session-ID": admin_session}).status_code == 200
     assert user["id"]
 
 

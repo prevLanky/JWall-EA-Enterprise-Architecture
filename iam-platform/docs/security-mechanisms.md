@@ -160,3 +160,26 @@ Sensitive values are excluded from event metadata.
 - GitHub Actions permissions are read-only for repository contents.
 - Semgrep, Gitleaks, Trivy, Syft/SPDX, Pytest, and ZAP jobs gate pull requests/pushes.
 - Production deployments must provide TLS, secret management, distributed throttling, and external audit durability.
+
+## 12. Browser portal defenses
+
+The `/admin` page is a presentation shell, not an authorization boundary. It can be downloaded by
+an unauthenticated or normal user, but its data and actions are API requests that require the
+existing session and permissions.
+
+Portal-specific controls include:
+
+- API values are inserted with DOM `textContent` and element construction, not `innerHTML` or
+      `document.write`.
+- The page returns a Content Security Policy with same-origin defaults, `script-src 'self'`,
+  `style-src 'self'`, no objects, no base URI, and no framing. Browser assets are served from the
+  same-origin `/static` mount; the portal no longer requires `unsafe-inline`.
+- `X-Content-Type-Options: nosniff` prevents MIME guessing.
+- `Referrer-Policy: no-referrer` prevents referrer leakage.
+- `Cache-Control: no-store` prevents browser/proxy caching of the portal shell.
+- A `401` API response removes `iam-session-id` from `sessionStorage` and redirects to `/login`.
+- Logout removes the browser session value after attempting server-side revocation.
+- Session IDs are not placed in URLs, logs, rendered table data, or audit output.
+
+The portal displays attacker-controlled fields such as usernames, application names, and audit
+metadata. The DOM-only rendering rule is therefore a security invariant, not merely a style choice.
