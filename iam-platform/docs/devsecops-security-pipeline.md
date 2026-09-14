@@ -278,6 +278,6 @@ ZAP runs without authentication. It covers public endpoints and startup behavior
 The workflow uses read-only repository permissions, versioned actions/images, non-production CI credentials, and no commercial SaaS dependency.
 
 The workflow validates successfully as YAML, and the application test suite has been run locally
-with all 40 tests passing. Scanner execution depends on Docker or the corresponding local CLI and
+with all 56 tests passing. Scanner execution depends on Docker or the corresponding local CLI and
 on network access to download maintained rule and vulnerability databases. A clean local scan is
 not a substitute for reviewing artifacts from the CI run.

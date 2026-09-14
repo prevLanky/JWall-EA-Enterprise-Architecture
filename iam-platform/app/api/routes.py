@@ -12,8 +12,14 @@ from .models import (
     ApplicationUpdateRequest,
     LoginRequest,
     NamedResourceRequest,
+    PasswordChangeRequest,
+    PasswordResetCompleteRequest,
+    PasswordResetRequest,
     PermissionCreateRequest,
     ResourceUpdateRequest,
+    TotpCodeRequest,
+    TotpDisableRequest,
+    TotpEnrollRequest,
     UserCreateRequest,
     UserUpdateRequest,
 )
@@ -49,7 +55,7 @@ def _application_actor(service: IamService, session_id: str | None, action: str,
 def _register_auth_routes(router: APIRouter, service: IamService) -> None:
     @router.post("/auth/login")
     def login(payload: LoginRequest) -> dict[str, str]:
-        return _call(lambda: service.login(payload.username, payload.password))
+        return _call(lambda: service.login(payload.username, payload.password, payload.totp_code))
 
     @router.post("/auth/logout", status_code=204)
     def logout(response: Response, x_session_id: str | None = Depends(session_header)) -> None:
@@ -60,6 +66,55 @@ def _register_auth_routes(router: APIRouter, service: IamService) -> None:
     @router.get("/auth/session")
     def session(x_session_id: str | None = Depends(session_header)) -> dict[str, str]:
         return {"user_id": str(_actor(service, x_session_id))}
+
+    @router.get("/auth/sessions")
+    def sessions(x_session_id: str | None = Depends(session_header)) -> Any:
+        user_id = _actor(service, x_session_id)
+        return _call(lambda: service.list_sessions(user_id))
+
+    @router.post("/auth/sessions/revoke-all", status_code=204)
+    def revoke_all_sessions(response: Response, x_session_id: str | None = Depends(session_header)) -> None:
+        user_id = _actor(service, x_session_id)
+        _call(lambda: service.revoke_all_sessions(user_id))
+        response.status_code = 204
+
+    @router.post("/auth/password", status_code=204)
+    def change_password(payload: PasswordChangeRequest, response: Response, x_session_id: str | None = Depends(session_header)) -> None:
+        user_id = _actor(service, x_session_id)
+        _call(lambda: service.change_password(user_id, payload.current_password, payload.new_password))
+        response.status_code = 204
+
+    @router.post("/auth/password-reset/request", status_code=202)
+    def request_password_reset(payload: PasswordResetRequest) -> dict[str, str]:
+        _call(lambda: service.request_password_reset(payload.email))
+        return {"detail": "If the account exists, reset instructions will be sent."}
+
+    @router.post("/auth/password-reset/complete", status_code=204)
+    def complete_password_reset(payload: PasswordResetCompleteRequest, response: Response) -> None:
+        _call(lambda: service.complete_password_reset(payload.token, payload.new_password))
+        response.status_code = 204
+
+    @router.post("/auth/mfa/totp/enroll")
+    def enroll_totp(payload: TotpEnrollRequest, x_session_id: str | None = Depends(session_header)) -> dict[str, str]:
+        user_id = _actor(service, x_session_id)
+        return _call(lambda: service.enroll_totp(user_id, payload.current_password))
+
+    @router.post("/auth/mfa/totp/verify", status_code=204)
+    def verify_totp(payload: TotpCodeRequest, response: Response, x_session_id: str | None = Depends(session_header)) -> None:
+        user_id = _actor(service, x_session_id)
+        _call(lambda: service.verify_totp_enrollment(user_id, payload.code))
+        response.status_code = 204
+
+    @router.get("/auth/mfa")
+    def mfa_status(x_session_id: str | None = Depends(session_header)) -> dict[str, bool]:
+        user_id = _actor(service, x_session_id)
+        return _call(lambda: service.totp_status(user_id))
+
+    @router.delete("/auth/mfa/totp", status_code=204)
+    def disable_totp(payload: TotpDisableRequest, response: Response, x_session_id: str | None = Depends(session_header)) -> None:
+        user_id = _actor(service, x_session_id)
+        _call(lambda: service.disable_totp(user_id, payload.current_password, payload.code))
+        response.status_code = 204
 
 
 def _register_user_routes(router: APIRouter, service: IamService) -> None:

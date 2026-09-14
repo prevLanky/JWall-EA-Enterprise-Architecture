@@ -7,7 +7,7 @@ iam-platform/
 ├── app/
 │   ├── api/             HTTP transport and route registration
 │   ├── core/            Shared errors, status codes, and validation
-│   ├── domain/          IAM rules, domain models, and database protocols
+│   ├── domain/          Identity, authentication, authorization, audit, application, and database protocols
 │   ├── infrastructure/  PostgreSQL schema/connection and Docker runtime adapter
 │   ├── dev/             Development-only reset/reload launcher
 │   ├── application.py   FastAPI composition root
@@ -15,7 +15,7 @@ iam-platform/
 ├── tests/
 │   ├── unit/            Fast, dependency-free behavior tests
 │   └── integration/     Opt-in PostgreSQL-backed HTTP tests
-├── docs/                Architecture, security, threat model, and schema documentation
+├── docs/                Architecture, functionality, security, flows, threat model, and schema documentation
 ├── .env.example         Safe configuration template; no real secrets
 ├── .env                 Local ignored configuration; never commit
 └── docker-compose.yml   PostgreSQL development service only

@@ -64,6 +64,23 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ
 );
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS totp_mfa (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    encrypted_secret TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    last_verified_at TIMESTAMPTZ,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    blocked_until TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS applications (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -88,6 +105,8 @@ DROP TABLE IF EXISTS role_permissions;
 DROP TABLE IF EXISTS audit_events;
 DROP TABLE IF EXISTS applications;
 DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS password_reset_tokens;
+DROP TABLE IF EXISTS totp_mfa;
 DROP TABLE IF EXISTS user_roles;
 DROP TABLE IF EXISTS user_groups;
 DROP TABLE IF EXISTS permissions;
@@ -105,6 +124,8 @@ EXPECTED_SCHEMA: dict[str, tuple[str, ...]] = {
     "permissions": ("id", "resource", "action", "created_at"),
     "role_permissions": ("role_id", "permission_id"),
     "sessions": ("id_hash", "user_id", "expires_at"),
+    "password_reset_tokens": ("token_hash", "user_id", "expires_at"),
+    "totp_mfa": ("user_id", "encrypted_secret", "enabled", "failed_attempts", "blocked_until"),
     "applications": ("id", "name"),
     "audit_events": ("id", "event_type", "user_id"),
 }

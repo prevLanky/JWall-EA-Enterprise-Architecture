@@ -1,0 +1,1052 @@
+# IAM Platform Development Roadmap
+
+You are working on a Python/FastAPI IAM platform intended to evolve from a basic RBAC/authentication service into a realistic enterprise Identity Provider and eventually a broader identity/security platform.
+
+Your job is to implement this **incrementally**. Do not attempt to build the entire roadmap at once.
+
+The most important principles are:
+
+* Keep the implementation simple.
+* Prefer modularity over complexity.
+* Avoid unnecessary dependencies.
+* Do not introduce microservices unless there is a strong architectural reason.
+* Build reusable components with clear interfaces.
+* Preserve existing functionality unless there is a clear reason to change it.
+* Do not rewrite working functionality unnecessarily.
+* Security is a core requirement, not something added later.
+* Follow OWASP principles, especially OWASP API Security.
+* Every security-sensitive decision must be auditable.
+* Prefer standards over proprietary designs.
+* When there are multiple valid approaches, choose the simplest approach that can evolve later.
+* Do not implement future functionality prematurely.
+
+---
+
+# Current State
+
+The project currently contains:
+
+* Users
+* Groups
+* Roles
+* Permissions
+* Applications
+* Authentication
+* Password hashing
+* Sessions
+* RBAC authorization
+* Audit logging
+* Application/resource authorization
+* FastAPI HTTP endpoints
+* PostgreSQL
+* Docker
+* CI/CD security scanning
+
+The current system is primarily a **centralized IAM/RBAC service**.
+
+It should now evolve toward a real **Identity Provider (IdP)**.
+
+---
+
+# Target Architecture
+
+The long-term architecture is:
+
+```text
+                         IAM PLATFORM
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+      Identity           Authentication      Authorization
+          │                   │                   │
+          │              MFA / Passkeys       RBAC / PBAC
+          │                   │                   │
+          └───────────────────┼───────────────────┘
+                              │
+                     OAuth 2.0 / OIDC
+                              │
+                     ┌────────┴────────┐
+                     │                 │
+                Human Users       Applications
+                                      / Workloads
+                              │
+                              ▼
+                       Token Service
+                              │
+                    ┌─────────┴─────────┐
+                    │                   │
+               Access Tokens        ID Tokens
+                    │
+                    ▼
+              Resource Servers
+
+
+Later:
+
+                    IAM
+                     │
+             ┌───────┴────────┐
+             ▼                ▼
+       Secrets Broker         PKI
+             │                │
+       Secret Store       Certificates
+       Dynamic Secrets       mTLS
+
+
+Even later:
+
+SCIM
+Federation
+Key Management
+SIEM/SOC integration
+Advanced PBAC
+```
+
+---
+
+# IMPORTANT: Development Order
+
+Implement the following phases **in order**.
+
+Do not skip ahead unless explicitly instructed.
+
+---
+
+# Phase 0 — Stabilize the IAM Core
+
+Before implementing OAuth/OIDC, inspect the existing architecture.
+
+## Goals
+
+Separate the current `IamService` into logical modules without turning the application into microservices.
+
+Suggested structure:
+
+```text
+iam/
+├── identity/
+├── authentication/
+├── authorization/
+├── audit/
+├── applications/
+├── oauth/
+├── oidc/
+└── tokens/
+```
+
+These can remain inside the same FastAPI application.
+
+Do not create network boundaries between them.
+
+The goal is separation of responsibility, not distributed architecture.
+
+### Identity
+
+Responsible for:
+
+* users
+* groups
+* roles
+* identity lifecycle
+
+### Authentication
+
+Responsible for:
+
+* passwords
+* sessions
+* authentication state
+* MFA later
+
+### Authorization
+
+Responsible for:
+
+* permissions
+* roles
+* authorization decisions
+* resource/object-level authorization
+
+### Audit
+
+Responsible for:
+
+* security events
+* authentication events
+* authorization events
+* administrative changes
+
+### Applications
+
+Responsible for:
+
+* registered applications
+* application metadata
+
+Later this area will integrate with OAuth clients.
+
+---
+
+# Phase 0 Security Fixes
+
+Before continuing, review these issues.
+
+## Password hashing
+
+Do not silently fall back to weaker password hashing.
+
+Use a modern password hashing algorithm such as Argon2id.
+
+Password hashing parameters must be configurable and appropriate for production.
+
+Never store plaintext passwords.
+
+## Sessions
+
+Continue using:
+
+* cryptographically random session identifiers
+* hashed session identifiers in the database
+* expiration
+* revocation
+
+Review:
+
+* session fixation
+* session replay
+* session enumeration
+* logout behavior
+* concurrent sessions
+
+## Authorization
+
+The current authorization API supports:
+
+```text
+authorize(user_id, resource, action, target_id)
+```
+
+but `target_id` currently does not meaningfully affect authorization.
+
+Fix this conceptually.
+
+Authorization should eventually answer:
+
+```text
+Can SUBJECT perform ACTION on RESOURCE?
+```
+
+not merely:
+
+```text
+Can SUBJECT perform ACTION?
+```
+
+Do not build a complex policy engine yet.
+
+Implement a simple, extensible authorization interface.
+
+---
+
+# Phase 1 — Authentication Improvements
+
+Implement:
+
+* password change
+* password reset architecture
+* session listing
+* session revocation
+* revoke all sessions
+* authentication audit events
+
+Then implement MFA.
+
+Start with:
+
+```text
+TOTP
+```
+
+Do not implement WebAuthn/passkeys until the basic MFA architecture is stable.
+
+Authentication should conceptually become:
+
+```text
+Authentication
+├── Password
+├── Session
+└── MFA
+```
+
+---
+
+# Phase 2 — Authorization Improvements
+
+Keep the existing RBAC model.
+
+Do NOT replace RBAC with a complicated policy engine.
+
+Improve it so that it can eventually support:
+
+```text
+Subject
+Resource
+Action
+Context
+Decision
+```
+
+For example:
+
+```text
+user-123
+application-456
+deploy
+production
+MFA=true
+device_compliant=true
+
+→ ALLOW
+```
+
+Initially, only implement the pieces that are actually required.
+
+Do not build a full policy language.
+
+---
+
+# Phase 3 — OAuth 2.0
+
+This is the next major milestone.
+
+The project must transition from being primarily an application-local authentication service into an Identity Provider.
+
+## OAuth clients
+
+Introduce a proper OAuth client model.
+
+At minimum:
+
+```text
+client_id
+client_type
+client_secret_hash
+redirect_uris
+allowed_grant_types
+allowed_scopes
+is_active
+```
+
+Support:
+
+* public clients
+* confidential clients
+
+Never store client secrets plaintext.
+
+---
+
+# Phase 3A — Authorization Code + PKCE
+
+Implement OAuth Authorization Code flow with PKCE.
+
+Conceptually:
+
+```text
+User
+  │
+  ▼
+Client Application
+  │
+  │ authorization request
+  ▼
+IAM
+  │
+  │ authenticate user
+  │ authorize client
+  ▼
+Authorization Code
+  │
+  ▼
+Client
+  │
+  │ code + PKCE verifier
+  ▼
+IAM Token Endpoint
+  │
+  ▼
+Access Token
+```
+
+Validate:
+
+* client_id
+* redirect_uri
+* response_type
+* requested scopes
+* PKCE challenge/verifier
+* authorization code lifetime
+* authorization code reuse
+* client status
+
+Authorization codes must be:
+
+* short-lived
+* single-use
+* unpredictable
+* bound to the client
+* bound to PKCE where applicable
+
+---
+
+# Phase 4 — Token Service
+
+Create a dedicated token service/module.
+
+It should eventually support:
+
+```text
+Access Token
+Refresh Token
+ID Token
+```
+
+Do not mix token generation logic throughout the API routes.
+
+Use a clear interface such as:
+
+```text
+TokenService.issue_access_token(...)
+TokenService.issue_refresh_token(...)
+TokenService.issue_id_token(...)
+TokenService.validate_token(...)
+```
+
+Exact naming can differ if the existing architecture suggests something better.
+
+---
+
+# Access Tokens
+
+Initially use signed JWT access tokens.
+
+The token should contain appropriate claims such as:
+
+```text
+iss
+sub
+aud
+exp
+iat
+nbf
+jti
+scope
+```
+
+Only include claims that are actually needed.
+
+Access tokens must be:
+
+* audience restricted
+* short-lived
+* signed
+* validated properly
+
+Resource servers must verify:
+
+* signature
+* algorithm
+* issuer
+* audience
+* expiration
+* not-before where applicable
+
+Never treat decoding a JWT as validation.
+
+---
+
+# Refresh Tokens
+
+Use opaque, cryptographically random refresh tokens.
+
+Store only a secure hash/server-side representation where possible.
+
+Implement:
+
+* expiration
+* revocation
+* rotation
+* replay detection later
+
+Do not make refresh tokens JWTs unless there is a clear architectural reason.
+
+---
+
+# Phase 5 — JWT Signing + JWKS
+
+Implement asymmetric JWT signing.
+
+The IAM must expose:
+
+```text
+/.well-known/jwks.json
+```
+
+JWKS must contain public signing keys.
+
+JWTs should contain a `kid`.
+
+Implement key rotation in a way that allows old public keys to remain available long enough for existing tokens to validate.
+
+Do not expose private signing keys.
+
+Eventually private keys should be backed by a KMS/HSM rather than application configuration.
+
+---
+
+# Phase 6 — OpenID Connect
+
+After OAuth 2.0 works, add OIDC.
+
+Implement:
+
+```text
+/.well-known/openid-configuration
+```
+
+and:
+
+```text
+/userinfo
+```
+
+Add ID token issuance.
+
+Remember:
+
+```text
+Access Token
+→ intended for APIs/resource servers
+
+ID Token
+→ intended for the OIDC client/application
+```
+
+Do not use ID tokens as API access tokens.
+
+Implement appropriate OIDC claims without exposing unnecessary personal information.
+
+---
+
+# Phase 7 — Machine / Workload Identity
+
+Once human authentication works, add non-human identities.
+
+Examples:
+
+* backend services
+* CI/CD pipelines
+* automation
+* applications
+* workloads
+
+Implement OAuth:
+
+```text
+client_credentials
+```
+
+Flow:
+
+```text
+Service A
+   │
+   │ client credentials
+   ▼
+IAM
+   │
+   ▼
+Access Token
+   │
+   ▼
+Service B
+```
+
+Machine identities should be separate from human identities conceptually, even if they share infrastructure.
+
+---
+
+# Phase 8 — Secrets Broker
+
+Do not implement this inside the IAM core.
+
+Create a separate logical platform component:
+
+```text
+IAM
+ │
+ │ identity + authorization
+ ▼
+Secrets Broker
+ │
+ ▼
+Secret Store
+```
+
+The broker should answer:
+
+```text
+Who is requesting?
+What secret?
+For which environment/resource?
+Is this identity allowed?
+How long should access exist?
+```
+
+Initially, integrate with an existing secret store rather than attempting to recreate Vault.
+
+Support eventually:
+
+* static secrets
+* dynamic credentials
+* secret leasing
+* expiration
+* revocation
+* audit logging
+
+The IAM provides identity/authorization.
+
+The secrets system provides secret storage.
+
+Do not mix those responsibilities.
+
+---
+
+# Phase 9 — PKI
+
+Later introduce a separate PKI component.
+
+Conceptually:
+
+```text
+Root CA
+   │
+   ▼
+Intermediate CA
+   │
+   ├── Service certificates
+   ├── Infrastructure certificates
+   └── Workload certificates
+```
+
+Support:
+
+* certificate issuance
+* certificate renewal
+* expiration
+* revocation
+* rotation
+
+Eventually use PKI for workload identity and mTLS.
+
+Do not implement a complete production CA from scratch merely for the portfolio project.
+
+Prefer integration with an established PKI implementation.
+
+---
+
+# Phase 10 — SCIM / Provisioning
+
+Implement identity lifecycle automation.
+
+Support:
+
+```text
+POST /scim/v2/Users
+GET /scim/v2/Users
+PATCH /scim/v2/Users/{id}
+DELETE /scim/v2/Users/{id}
+```
+
+and groups where appropriate.
+
+Use SCIM for:
+
+* provisioning
+* deprovisioning
+* user updates
+* group membership
+
+Ensure deprovisioning can:
+
+* disable the identity
+* revoke sessions
+* invalidate appropriate access
+* generate audit events
+
+---
+
+# Phase 11 — Federation
+
+Only after the internal IdP is mature.
+
+Support external identity providers through:
+
+* OIDC federation
+* eventually SAML
+
+Example:
+
+```text
+Enterprise Entra ID
+        │
+        ▼
+     Your IAM
+        │
+        ▼
+   Application
+```
+
+Implement:
+
+* external identity linking
+* claims mapping
+* trust configuration
+* account lifecycle handling
+
+Do not implement federation before the core OIDC implementation is stable.
+
+---
+
+# Phase 12 — Enterprise Security
+
+Eventually add:
+
+## Key management
+
+Signing keys should eventually be protected by:
+
+* KMS
+* HSM
+* external key management
+
+## Token security
+
+Implement:
+
+* short-lived access tokens
+* refresh-token rotation
+* replay detection
+* audience restriction
+* scope restriction
+* revocation mechanisms
+
+## Audit
+
+Move toward structured security events.
+
+Example:
+
+```json
+{
+  "event": "authorization.denied",
+  "actor": "user-123",
+  "resource": "application",
+  "resource_id": "app-456",
+  "action": "deploy",
+  "reason": "missing_permission",
+  "timestamp": "..."
+}
+```
+
+Audit events should be suitable for forwarding to a SIEM/SOC.
+
+---
+
+# DevSecOps Requirements
+
+Every major feature must include security testing.
+
+CI/CD should eventually include:
+
+```text
+Lint
+ ↓
+Unit Tests
+ ↓
+Integration Tests
+ ↓
+SAST
+ ↓
+Dependency/SCA
+ ↓
+Secret Scanning
+ ↓
+SBOM
+ ↓
+Container Scanning
+ ↓
+Security Tests
+ ↓
+Build
+```
+
+Where practical, add:
+
+* API security tests
+* authentication tests
+* authorization tests
+* token validation tests
+* negative tests
+* abuse-case tests
+
+Security failures must fail CI where appropriate.
+
+---
+
+# OWASP/API Security
+
+Pay particular attention to:
+
+* Broken Object Level Authorization
+* Broken Authentication
+* Broken Function Level Authorization
+* Security Misconfiguration
+* Injection
+* SSRF
+* unrestricted resource consumption
+* improper error handling
+* sensitive data exposure
+
+Every new endpoint must explicitly answer:
+
+```text
+Who can call this?
+What identity is used?
+What authorization is required?
+What object is being accessed?
+Can the caller access THAT object?
+What should be audited?
+```
+
+Do not rely solely on route-level authentication.
+
+---
+
+# Testing Strategy
+
+Every phase must add tests.
+
+Minimum categories:
+
+```text
+Unit tests
+Integration tests
+Authentication tests
+Authorization tests
+Security regression tests
+```
+
+For OAuth/OIDC specifically test:
+
+* invalid client
+* invalid redirect URI
+* invalid PKCE
+* expired authorization code
+* reused authorization code
+* invalid client secret
+* invalid scope
+* expired access token
+* invalid signature
+* wrong audience
+* wrong issuer
+* revoked refresh token
+* refresh token replay
+
+---
+
+# Architecture Rules
+
+Before making significant changes, inspect the existing implementation.
+
+Do not blindly create new abstractions.
+
+When implementing a feature:
+
+1. Understand the current architecture.
+2. Identify the smallest change that achieves the goal.
+3. Reuse existing components where appropriate.
+4. Introduce a new module only when responsibility genuinely differs.
+5. Keep interfaces replaceable.
+6. Add tests.
+7. Update documentation.
+8. Run the existing test suite.
+9. Run security checks.
+
+Avoid:
+
+* unnecessary frameworks
+* unnecessary libraries
+* premature microservices
+* premature event-driven architecture
+* complicated policy languages
+* implementing a full Vault
+* implementing a full CA
+* implementing every IAM standard at once
+
+---
+
+# Definition of "Done"
+
+A phase is not complete merely because the code exists.
+
+For every phase:
+
+```text
+Implementation
+      ↓
+Tests
+      ↓
+Security review
+      ↓
+Documentation
+      ↓
+Architecture review
+      ↓
+CI/CD validation
+```
+
+The implementation should be understandable by another security engineer.
+
+Document important security decisions and tradeoffs.
+
+---
+
+# Priority
+
+If you need to choose what to work on next, use this priority:
+
+```text
+1. Fix/stabilize IAM core
+2. Authentication + MFA
+3. Authorization/resource-level authorization
+4. OAuth client registration
+5. Authorization Code + PKCE
+6. Token Service
+7. JWT + JWKS
+8. OpenID Connect
+9. Client Credentials / Workload Identity
+10. Secrets Broker integration
+11. PKI integration
+12. SCIM
+13. Federation
+14. Enterprise key management / advanced security
+```
+
+Do NOT start implementing Secrets Broker, PKI, SCIM, or federation while the OAuth/OIDC foundation is incomplete.
+
+---
+
+# Working Method
+
+For each phase:
+
+### Step 1 — Inspect
+
+Inspect the current repository and identify:
+
+* relevant modules
+* existing interfaces
+* database schema
+* routes
+* tests
+* dependencies
+* security controls
+
+### Step 2 — Plan
+
+Before modifying code, produce a short implementation plan.
+
+Identify:
+
+* files to change
+* database changes
+* API changes
+* security implications
+* tests required
+
+### Step 3 — Implement
+
+Make the smallest coherent change.
+
+### Step 4 — Test
+
+Run:
+
+* unit tests
+* integration tests
+* relevant security tests
+* lint/type checks if configured
+
+### Step 5 — Review
+
+Check for:
+
+* authentication bypass
+* authorization bypass
+* IDOR/BOLA
+* privilege escalation
+* token leakage
+* secret leakage
+* sensitive logging
+* insecure defaults
+* improper error handling
+
+### Step 6 — Document
+
+Update architecture/API/security documentation where necessary.
+
+---
+
+# Important Agent Behavior
+
+Do not assume that a feature should be implemented simply because it appears on the roadmap.
+
+The roadmap describes the **target architecture**.
+
+Only implement the current phase.
+
+If implementing a feature requires a significant architectural decision, stop and explain the alternatives before making the change.
+
+Favor:
+
+```text
+simple now
++
+replaceable later
+```
+
+over:
+
+```text
+complex now
++
+maybe scalable later
+```
+
+The ultimate goal is to build a credible, security-focused IAM platform that demonstrates:
+
+* identity architecture
+* authentication engineering
+* authorization engineering
+* OAuth/OIDC
+* secure API design
+* workload identity
+* secrets management
+* PKI
+* provisioning
+* federation
+* DevSecOps
+* security operations
+
+without turning the project into an unnecessarily complex distributed system.

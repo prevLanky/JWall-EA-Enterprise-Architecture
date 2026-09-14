@@ -53,6 +53,23 @@ CREATE TABLE sessions (
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ
 );
+CREATE TABLE password_reset_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ
+);
+CREATE TABLE totp_mfa (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    encrypted_secret TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    last_verified_at TIMESTAMPTZ,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    blocked_until TIMESTAMPTZ
+);
 CREATE TABLE applications (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,

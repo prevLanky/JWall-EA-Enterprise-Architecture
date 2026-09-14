@@ -1,0 +1,643 @@
+# Implement TOTP MFA — Focused IAM Security Slice
+
+Implement **TOTP-based MFA** as the next focused feature in the IAM platform.
+
+## Current roadmap status
+
+* Phase 0 — IAM Core: **COMPLETE**
+* Phase 1 — Authentication:
+
+  * Password change: **COMPLETE**
+  * Password reset architecture: **COMPLETE**
+  * Session listing: **COMPLETE**
+  * Session revocation: **COMPLETE**
+  * Revoke all sessions: **COMPLETE**
+  * TOTP MFA: **NEXT**
+* OAuth 2.0 / OIDC: **DEFERRED**
+* Token service: **DEFERRED**
+* JWT/JWKS: **DEFERRED**
+* Workload identity: **DEFERRED**
+* Secrets Broker: **DEFERRED**
+* PKI: **DEFERRED**
+* SCIM: **DEFERRED**
+* Federation: **DEFERRED**
+
+Do **not** implement or refactor toward OAuth/OIDC, JWT, PKI, Secrets Broker, SCIM, federation, or other later roadmap phases as part of this task.
+
+The goal is to implement a clean, secure, self-contained TOTP MFA subsystem that can later be reused by OAuth/OIDC authentication flows.
+
+---
+
+# 1. First inspect the existing implementation
+
+Before changing anything, inspect:
+
+* current authentication service
+* user model/database schema
+* session model
+* authentication endpoints
+* password verification
+* audit implementation
+* existing error handling
+* existing dependency management
+* existing tests
+* project architecture and coding conventions
+
+Do not assume the architecture from this prompt is identical to the repository.
+
+Reuse existing abstractions where appropriate.
+
+Do not rewrite unrelated working functionality.
+
+Before implementation, provide a concise plan covering:
+
+* files/modules to change
+* database changes
+* API changes
+* encryption/key-protection design
+* authentication-flow changes
+* tests
+
+Then implement the plan.
+
+---
+
+# 2. TOTP requirements
+
+Implement standards-compliant TOTP based on RFC 6238.
+
+Use a well-maintained, established Python library for TOTP rather than implementing the cryptographic algorithm manually.
+
+Do not write custom HOTP/TOTP cryptography.
+
+The implementation should support:
+
+* secret generation
+* TOTP verification
+* configurable time step if the existing architecture warrants it
+* appropriate clock tolerance
+* provisioning URI
+* QR-code-compatible provisioning data
+
+Default TOTP behavior should use conventional secure defaults unless there is a strong reason otherwise.
+
+Do not unnecessarily expose configuration that users cannot reasonably configure.
+
+---
+
+# 3. TOTP secret protection
+
+This is the most important architectural part of this task.
+
+The TOTP secret must **never be stored plaintext in the database**.
+
+The system needs to be able to decrypt the secret when verifying a TOTP code, so a one-way password hash is not appropriate.
+
+Introduce a small abstraction for protecting reversible secrets.
+
+For example:
+
+```python
+class SecretProtector:
+    def encrypt(self, plaintext: bytes) -> bytes:
+        ...
+
+    def decrypt(self, ciphertext: bytes) -> bytes:
+        ...
+```
+
+The exact interface/name may differ if the existing architecture suggests something better.
+
+The TOTP service should depend on this abstraction rather than directly depending on environment variables or a specific production KMS.
+
+Conceptually:
+
+```text
+TOTP Service
+     │
+     ▼
+SecretProtector
+     │
+     ▼
+Encrypted TOTP secret
+     │
+     ▼
+Database
+```
+
+## Development implementation
+
+For development, use a locally configured encryption key supplied through the application's existing configuration/secret mechanism.
+
+Do not hardcode the encryption key.
+
+Do not commit the key to Git.
+
+Do not store the encryption key in the database.
+
+## Production architecture
+
+The design must allow the encryption-key source to later be replaced with something such as:
+
+* KMS
+* HSM
+* Vault
+* another enterprise key-management system
+
+Do **not** implement KMS/HSM/Vault integration in this task.
+
+The important requirement is that the TOTP service does not need to change when the key-protection backend changes.
+
+---
+
+# 4. Encryption requirements
+
+Use authenticated encryption.
+
+Do not invent a custom encryption scheme.
+
+The implementation must provide:
+
+* confidentiality
+* integrity/authentication
+* unique/random nonce/IV where required
+* key separation where appropriate
+
+The encrypted database value must contain everything necessary to decrypt the ciphertext except the encryption key itself.
+
+Do not log:
+
+* plaintext TOTP secrets
+* encryption keys
+* provisioning URIs containing secrets
+* OTP codes
+
+Be especially careful with exception messages and debug logging.
+
+---
+
+# 5. Database model
+
+Add the minimum required persistence for TOTP.
+
+A reasonable model could contain:
+
+```text
+user_id
+encrypted_secret
+enabled
+created_at
+updated_at
+```
+
+You may add additional fields if genuinely required.
+
+Consider whether the system needs:
+
+* enrollment state
+* verification timestamp
+* failed verification tracking
+* recovery state
+
+Do not add fields merely because they might be useful someday.
+
+Use the existing database conventions and migration mechanism.
+
+Do not store the current TOTP code.
+
+---
+
+# 6. Enrollment flow
+
+Implement a secure enrollment flow.
+
+Conceptually:
+
+```text
+Authenticated User
+       │
+       ▼
+Request MFA enrollment
+       │
+       ▼
+Generate random TOTP secret
+       │
+       ▼
+Encrypt secret
+       │
+       ▼
+Store encrypted secret
+       │
+       ▼
+Generate provisioning URI
+       │
+       ▼
+User configures authenticator
+       │
+       ▼
+User submits TOTP code
+       │
+       ▼
+Verify code
+       │
+       ▼
+MFA becomes enabled
+```
+
+Important:
+
+### Do not enable MFA immediately after generating the secret.
+
+The user must successfully verify an OTP before MFA is considered enabled.
+
+This prevents an incomplete enrollment from locking the user out.
+
+The provisioning secret must only be returned through the enrollment response and must not be persisted in plaintext elsewhere.
+
+---
+
+# 7. MFA authentication flow
+
+Modify the existing login flow so that:
+
+### User without MFA
+
+```text
+username/password
+      ↓
+password valid
+      ↓
+create authenticated session
+```
+
+### User with MFA enabled
+
+```text
+username/password
+      ↓
+password valid
+      ↓
+MFA required
+      ↓
+TOTP verification
+      ↓
+create authenticated session
+```
+
+Do not create a fully authenticated session before MFA succeeds.
+
+If the existing authentication architecture needs an intermediate authentication state, implement one cleanly.
+
+Avoid introducing a second independent session system.
+
+---
+
+# 8. TOTP verification
+
+Verification must:
+
+* use the decrypted secret
+* validate the submitted code
+* enforce appropriate time tolerance
+* reject malformed input
+* avoid leaking whether the secret exists
+* avoid logging the OTP
+
+Consider rate limiting / failed-attempt handling.
+
+Reuse the existing authentication security mechanisms where appropriate rather than creating an entirely separate lockout system.
+
+Do not make the TOTP verification endpoint an authorization bypass.
+
+---
+
+# 9. MFA management
+
+Implement the minimum necessary management operations.
+
+At minimum, support:
+
+### Enrollment
+
+```text
+POST .../mfa/totp/enroll
+```
+
+### Enrollment verification
+
+```text
+POST .../mfa/totp/verify
+```
+
+### Status
+
+```text
+GET .../mfa
+```
+
+### Disable
+
+```text
+DELETE .../mfa/totp
+```
+
+Exact endpoint names should follow the existing API conventions.
+
+For disabling MFA, require appropriate authentication/security controls.
+
+Do not allow a normal unauthenticated request to disable MFA.
+
+Consider requiring a current password and/or current TOTP code depending on the existing authentication model.
+
+Do not weaken account security merely to make the API convenient.
+
+---
+
+# 10. Recovery considerations
+
+Do not build a complete recovery-code system unless the existing architecture already supports it cleanly.
+
+However, design the MFA model so recovery codes can be added later.
+
+Do not invent insecure recovery mechanisms such as:
+
+```text
+"Forgot MFA? Just call disable MFA."
+```
+
+If disabling MFA requires an elevated recovery path, document that requirement.
+
+If a recovery-code implementation is already necessary for the existing authentication design, implement it separately and securely rather than mixing it into the TOTP secret logic.
+
+---
+
+# 11. Audit events
+
+Every security-sensitive MFA operation must generate an audit event.
+
+At minimum:
+
+```text
+mfa.totp.enrollment.started
+mfa.totp.enrollment.completed
+mfa.totp.enrollment.failed
+mfa.totp.verification.success
+mfa.totp.verification.failed
+mfa.totp.disabled
+```
+
+Use the existing audit infrastructure.
+
+Do not put secrets, OTP codes, or provisioning secrets into audit metadata.
+
+Example:
+
+```json
+{
+  "event": "mfa.totp.verification.failed",
+  "user_id": "user-123",
+  "reason": "invalid_code"
+}
+```
+
+Avoid sensitive metadata.
+
+---
+
+# 12. Security requirements
+
+Review the implementation specifically for:
+
+### Authentication bypass
+
+Can an attacker obtain a fully authenticated session without passing MFA?
+
+### MFA bypass
+
+Can an attacker:
+
+* skip enrollment verification?
+* disable MFA without sufficient authentication?
+* manipulate the MFA state?
+* modify another user's MFA configuration?
+
+### IDOR/BOLA
+
+A user must never be able to manipulate another user's MFA configuration simply by changing a `user_id`.
+
+Prefer deriving the user identity from the authenticated session rather than trusting a user-supplied identity.
+
+### Secret exposure
+
+Check:
+
+* API responses
+* logs
+* exceptions
+* database
+* audit events
+* debug output
+* test fixtures
+
+for accidental TOTP secret exposure.
+
+### Encryption
+
+Verify that:
+
+* keys aren't hardcoded
+* ciphertext is authenticated
+* encryption failures are handled safely
+* decryption failures don't expose sensitive information
+
+---
+
+# 13. Testing
+
+Add comprehensive tests.
+
+At minimum:
+
+## Secret protection
+
+* plaintext secret is never stored
+* encryption/decryption round trip works
+* modified ciphertext fails authentication
+* wrong encryption key fails
+* encryption key is not exposed through logs/errors
+
+## Enrollment
+
+* authenticated user can start enrollment
+* secret is generated
+* provisioning data is generated
+* MFA is not enabled before verification
+* correct TOTP enables MFA
+* incorrect TOTP does not enable MFA
+
+## Authentication
+
+Test:
+
+```text
+Password only user
+→ login succeeds
+```
+
+```text
+MFA user + correct password + correct TOTP
+→ login succeeds
+```
+
+```text
+MFA user + correct password + incorrect TOTP
+→ login denied
+```
+
+```text
+MFA user + incorrect password
+→ login denied
+```
+
+```text
+MFA user
+→ cannot obtain authenticated session without MFA
+```
+
+## Authorization
+
+Test that:
+
+* user cannot modify another user's MFA
+* unauthenticated users cannot manage MFA
+* disabling MFA requires appropriate authentication
+
+## Audit
+
+Verify successful and failed MFA events are generated.
+
+## Regression
+
+Run the entire existing test suite.
+
+Do not break existing password/session functionality.
+
+---
+
+# 14. Dependency policy
+
+Before adding a dependency:
+
+1. Check whether an existing dependency already provides the required functionality.
+2. Prefer a mature, focused security library.
+3. Avoid adding a large framework for a small requirement.
+4. Pin the dependency according to the project's existing dependency policy.
+5. Ensure it is included in the existing dependency/security scanning pipeline.
+
+Do not implement cryptographic primitives yourself.
+
+---
+
+# 15. Documentation
+
+Update the project documentation to explain:
+
+### MFA architecture
+
+```text
+Authentication
+      │
+      ├── Password
+      │
+      └── TOTP
+             │
+             ▼
+       SecretProtector
+             │
+             ▼
+       Encrypted DB
+```
+
+Document:
+
+* how TOTP enrollment works
+* how TOTP authentication works
+* how secrets are protected
+* development key handling
+* production key-management expectations
+* security considerations
+* limitations
+* future migration to KMS/HSM/Vault
+
+Clearly distinguish:
+
+```text
+TOTP secret
+≠
+encryption key
+```
+
+The encryption key must not be stored alongside the encrypted TOTP secret.
+
+---
+
+# 16. Do not implement these yet
+
+This task is strictly limited to TOTP MFA.
+
+Do NOT implement:
+
+* OAuth 2.0
+* Authorization Code flow
+* PKCE
+* OpenID Connect
+* JWT access tokens
+* JWKS
+* client credentials
+* workload identity
+* Secrets Broker
+* Vault integration
+* PKI
+* certificates
+* mTLS
+* SCIM
+* federation
+* SAML
+* KMS/HSM integration
+
+Design interfaces so these can be added later, but don't build them now.
+
+---
+
+# 17. Completion criteria
+
+TOTP MFA is complete only when:
+
+* TOTP enrollment works
+* enrollment requires successful OTP verification
+* TOTP secrets are encrypted at rest
+* encryption keys are not stored in the database
+* development key management is documented
+* production key-provider replacement is possible
+* MFA is enforced during login
+* MFA cannot be bypassed
+* MFA management is properly authorized
+* audit events exist
+* sensitive values never appear in logs/audit/errors
+* tests cover positive and negative cases
+* existing authentication/session tests still pass
+* CI/security checks pass
+* documentation is updated
+
+At the end, provide a concise summary of:
+
+1. Files changed
+2. Database changes
+3. New dependencies
+4. API endpoints
+5. Security decisions
+6. Tests added
+7. Remaining limitations
+8. How the implementation can later integrate with OAuth/OIDC
+
+Do not proceed to the next IAM roadmap phase after completing this task.

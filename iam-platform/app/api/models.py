@@ -8,6 +8,34 @@ class StrictRequest(BaseModel):
 class LoginRequest(StrictRequest):
     username: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=255)
+    totp_code: str | None = Field(default=None, pattern=r"^\d{6}$")
+
+
+class PasswordChangeRequest(StrictRequest):
+    current_password: str = Field(min_length=1, max_length=255)
+    new_password: str = Field(min_length=12, max_length=255)
+
+
+class PasswordResetRequest(StrictRequest):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class PasswordResetCompleteRequest(StrictRequest):
+    token: str = Field(min_length=32, max_length=512)
+    new_password: str = Field(min_length=12, max_length=255)
+
+
+class TotpCodeRequest(StrictRequest):
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class TotpEnrollRequest(StrictRequest):
+    current_password: str = Field(min_length=1, max_length=255)
+
+
+class TotpDisableRequest(StrictRequest):
+    current_password: str = Field(min_length=1, max_length=255)
+    code: str = Field(pattern=r"^\d{6}$")
 
 
 class UserCreateRequest(StrictRequest):

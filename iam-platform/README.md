@@ -57,9 +57,36 @@ the interactive Swagger client, or check `http://127.0.0.1:8002/health` first. I
 `POST /auth/login`, copy the returned `session_id`, select **Authorize**, and paste it into the
 `X-Session-ID` field. Protected endpoints can then be called from the browser.
 
+Authentication management endpoints include `GET /auth/sessions`, `POST /auth/password`, and
+`POST /auth/sessions/revoke-all`. Password changes and revoke-all operations invalidate existing
+sessions; session listing returns metadata only and never returns session credentials.
+
+Password reset endpoints are available as an integration-ready flow:
+`POST /auth/password-reset/request` and `POST /auth/password-reset/complete`. The request endpoint
+does not reveal whether an email exists. V1 stores only a hash of the short-lived reset token;
+connecting token delivery to email or another provider remains outside the core service.
+
+### TOTP MFA
+
+Generate a local encryption key before using MFA:
+
+```powershell
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Put the generated value in `.env` as `TOTP_ENCRYPTION_KEY`. Never commit it or store it in the
+database. Use `POST /auth/mfa/totp/enroll` with the current password, scan the returned provisioning URI, and call
+`POST /auth/mfa/totp/verify` with the six-digit code. Once enabled, include `totp_code` in
+`POST /auth/login`. Production should replace the development key source with KMS, HSM, Vault, or
+equivalent key management.
+
 Login with `POST /auth/login`. Send the returned opaque `session_id` in the `X-Session-ID`
 header for protected requests. `401` means the session is missing or invalid; `403` means the
 authenticated user lacks the required permission.
+
+New passwords use configurable Argon2id hashing. Legacy bcrypt/scrypt hashes remain verifiable so
+existing local accounts can migrate without an authentication outage; new password creation never
+silently falls back to a weaker algorithm.
 
 For quick browser testing, open [http://127.0.0.1:8002/login](http://127.0.0.1:8002/login).
 The page calls the same login, session, and logout endpoints as the API, keeps the session only in
@@ -117,6 +144,12 @@ pytest
 
 The tests use a test-only in-memory SQL connection double so they validate IAM behavior without
 requiring a PostgreSQL server. Production code uses PostgreSQL through `psycopg`.
+
+## Documentation
+
+The detailed documentation index is [docs/documentation-index.md](docs/documentation-index.md).
+It links the architecture, functionality, security mechanisms, data flows, control flows and
+interfaces, threat model, database schema, and DevSecOps pipeline reference.
 
 ## CI security pipeline
 

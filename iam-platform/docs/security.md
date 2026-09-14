@@ -21,9 +21,10 @@ foreign keys, required values, and relationship integrity.
 
 ## Authentication and sessions
 
-Passwords must contain at least 12 characters and are hashed with bcrypt when installed, with a
-scrypt fallback in the service test adapter. Passwords, hashes, sessions, and credentials are
-never returned or logged. Login failures use a generic `401` response and increment a bounded
+Passwords must contain at least 12 characters and are hashed with configurable Argon2id. Existing
+bcrypt and scrypt hashes can still be verified for account migration, but new password hashes never
+fall back to a weaker algorithm. Passwords, hashes, sessions, and credentials are never returned or
+logged. Login failures use a generic `401` response and increment a bounded
 failure counter, locking the account after five failures for fifteen minutes. Inactive and locked
 users cannot authenticate.
 
@@ -35,12 +36,54 @@ TLS is a deployment requirement because possession of the header value is suffic
 The V1 schema now names the stored value `sessions.id_hash`; an existing database must be migrated
 or reset before deploying this change because the project does not yet include a migration framework.
 
+Phase 1 authentication controls now include:
+
+- `GET /auth/sessions` for the authenticated user's session metadata only; raw session identifiers
+	and hashes are never returned.
+- `POST /auth/sessions/revoke-all` to revoke every active session for the authenticated user.
+- `POST /auth/password` to verify the current password, store a new Argon2id hash, revoke all
+	existing sessions, and audit the transition.
+
+Password changes deliberately invalidate all bearer sessions to prevent a previously issued
+credential from remaining active after a credential change.
+
+Password reset architecture is also in place:
+
+- `POST /auth/password-reset/request` accepts an email and always returns the same generic response.
+- The server generates a short-lived random token and stores only its SHA-256 digest.
+- Delivery is intentionally an integration boundary; no email provider is coupled to V1 yet.
+- `POST /auth/password-reset/complete` accepts the delivered token once, requires the password
+	policy, marks the token used, revokes all existing sessions, and audits completion.
+- Unknown, expired, reused, and malformed reset tokens fail without exposing account state.
+
+### TOTP MFA
+
+TOTP enrollment and verification use `pyotp` for RFC 6238 behavior. Generated secrets are
+encrypted with authenticated Fernet encryption before storage in `totp_mfa.encrypted_secret`.
+The `TOTP_ENCRYPTION_KEY` is external configuration: it is not stored in PostgreSQL, returned by
+the API, or written to audit events. `SecretProtector` is the replaceable boundary for future KMS,
+HSM, or Vault integration.
+
+Enrollment is two-step: `/auth/mfa/totp/enroll` creates a disabled encrypted secret and returns a
+provisioning URI; `/auth/mfa/totp/verify` must receive a valid code before MFA is enabled. Once
+enabled, password-only login cannot create a session and `/auth/login` requires `totp_code`.
+Disabling MFA requires the authenticated session, current password, and a valid current TOTP code.
+MFA success and failure events are audited without codes or secrets.
+TOTP verification accepts a deliberate `valid_window=1` clock-skew window, covering the adjacent
+30-second time steps. To prevent unlimited guessing against the six-digit code space, five failed
+attempts cause a 15-minute per-user MFA block; successful verification resets the counter.
+
 ## Authorization and privilege boundaries
 
 Permissions are `(resource, action)` pairs. Groups do not grant permissions in V1. The bootstrap
 Administrator role owns only `iam:manage`; application permissions can be assigned explicitly.
 IAM administration requires both a valid session and `iam:manage`. Ordinary users cannot submit
 privilege fields or forge audit events.
+
+Authorization is implemented as a small in-process policy boundary. It evaluates the subject,
+resource, and action, and target-aware application checks validate that the requested object exists
+before the protected operation runs. V1 still uses global role permissions rather than ownership
+or a full policy language; this keeps the interface replaceable without introducing a policy engine.
 
 ## Audit logging and sensitive data
 
@@ -85,6 +128,7 @@ The executable security tests are documented by docstrings in `tests/unit/test_i
 
 Run the offline security suite with `python -m pytest tests/unit/test_iam.py -q`. PostgreSQL
 compatibility tests are opt-in and require the integration environment described in the README.
+The latest complete local unit and PostgreSQL-backed suite contains 56 passing tests.
 
 ## Assumptions and limitations
 

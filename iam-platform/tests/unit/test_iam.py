@@ -6,6 +6,8 @@ from types import TracebackType
 from typing import Protocol, cast
 from uuid import UUID, uuid4
 
+import pyotp
+from cryptography.fernet import Fernet
 from httpx import Response
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +17,7 @@ from app.application import create_app
 from app.core.errors import IamError
 from app.domain.iam import IamService
 from app.domain.ports import SqlParameter, SqlRow
+from app.domain.secrets import SecretProtector, SecretProtectionError
 from fastapi import FastAPI
 
 
@@ -39,6 +42,15 @@ CREATE TABLE role_permissions (role_id TEXT NOT NULL, permission_id TEXT NOT NUL
 CREATE TABLE sessions (
     id_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TIMESTAMP NOT NULL,
     expires_at TIMESTAMP NOT NULL, revoked_at TIMESTAMP
+);
+CREATE TABLE password_reset_tokens (
+    token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL, used_at TIMESTAMP
+);
+CREATE TABLE totp_mfa (
+    user_id TEXT PRIMARY KEY, encrypted_secret TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL, last_verified_at TIMESTAMP,
+    failed_attempts INTEGER NOT NULL DEFAULT 0, blocked_until TIMESTAMP
 );
 CREATE TABLE applications (id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, description TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP);
 CREATE TABLE audit_events (
@@ -253,6 +265,7 @@ def test_password_hash_is_not_plaintext() -> None:
     password_hash = IamService.hash_password("correct horse battery staple")
 
     assert password_hash != "correct horse battery staple"
+    assert password_hash.startswith("$argon2id$")
     assert IamService.verify_password("correct horse battery staple", password_hash)
     assert not IamService.verify_password("wrong password", password_hash)
 
@@ -365,6 +378,149 @@ def test_security_logout_revokes_the_session(service: IamService) -> None:
     service.logout(session_id, UUID(str(user["id"])))
     with pytest.raises(IamError):
         service.authenticate(session_id)
+
+
+def test_phase_one_password_change_revokes_existing_sessions(service: IamService) -> None:
+    """Verify changing a password invalidates existing bearer sessions and permits the new password."""
+    user = service.create_user("password-user", "Password User", "Correct-Password-1", "password@example.test")
+    user_id = UUID(str(user["id"]))
+    first_session = service.login("password-user", "Correct-Password-1")["session_id"]
+    second_session = service.login("password-user", "Correct-Password-1")["session_id"]
+
+    assert len(service.list_sessions(user_id)) == 2
+    service.change_password(user_id, "Correct-Password-1", "New-Correct-Password-1")
+
+    with pytest.raises(IamError):
+        service.authenticate(first_session)
+    with pytest.raises(IamError):
+        service.authenticate(second_session)
+    assert service.login("password-user", "New-Correct-Password-1")["user_id"] == user["id"]
+    assert any(event["event_type"] == "PASSWORD_CHANGED" for event in service.audit_events())
+
+
+def test_phase_one_revoke_all_sessions_is_idempotent(service: IamService) -> None:
+    """Verify explicit session revocation removes all active sessions without revealing session IDs."""
+    user = service.create_user("revoke-user", "Revoke User", "Correct-Password-1", "revoke@example.test")
+    user_id = UUID(str(user["id"]))
+    session_id = service.login("revoke-user", "Correct-Password-1")["session_id"]
+
+    service.revoke_all_sessions(user_id)
+    service.revoke_all_sessions(user_id)
+    assert service.list_sessions(user_id)[0]["revoked"] is True
+    with pytest.raises(IamError):
+        service.authenticate(session_id)
+
+
+def test_phase_one_password_reset_is_single_use_and_revokes_sessions(service: IamService) -> None:
+    """Verify reset tokens are hashed, single-use, and invalidate prior bearer sessions."""
+    user = service.create_user("reset-user", "Reset User", "Correct-Password-1", "reset@example.test")
+    user_id = UUID(str(user["id"]))
+    session_id = service.login("reset-user", "Correct-Password-1")["session_id"]
+    token = service.issue_password_reset_token("reset@example.test")
+
+    assert token is not None
+    stored = service._one("SELECT token_hash FROM password_reset_tokens WHERE user_id = %s", (user_id,))[0]
+    assert stored == IamService.hash_session_id(token)
+    assert stored != token
+
+    service.complete_password_reset(token, "Reset-Correct-Password-1")
+    with pytest.raises(IamError):
+        service.authenticate(session_id)
+    assert service.login("reset-user", "Reset-Correct-Password-1")["user_id"] == user["id"]
+    with pytest.raises(IamError):
+        service.complete_password_reset(token, "Another-Correct-Password-1")
+
+
+def test_phase_one_password_reset_request_does_not_enumerate_users(service: IamService) -> None:
+    """Verify reset requests for unknown and known emails have the same externally safe outcome."""
+    assert service.issue_password_reset_token("missing@example.test") is None
+    user = service.create_user("known-reset", "Known Reset", "Correct-Password-1", "known-reset@example.test")
+    assert service.issue_password_reset_token("known-reset@example.test") is not None
+    assert user["email"] == "known-reset@example.test"
+
+
+def test_totp_secret_protector_round_trip_and_tamper_detection() -> None:
+    """Verify TOTP secret encryption authenticates ciphertext and never returns plaintext storage."""
+    key = Fernet.generate_key()
+    protector = SecretProtector(key)
+    ciphertext = protector.encrypt(b"totp-secret")
+
+    assert ciphertext != b"totp-secret"
+    assert protector.decrypt(ciphertext) == b"totp-secret"
+    with pytest.raises(SecretProtectionError):
+        protector.decrypt(ciphertext[:-1] + b"0")
+    with pytest.raises(SecretProtectionError):
+        SecretProtector(Fernet.generate_key()).decrypt(ciphertext)
+
+
+def test_totp_enrollment_requires_verification_and_enforces_login(service: IamService, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify enrollment is pending until a valid code, then blocks password-only login."""
+    monkeypatch.setenv("TOTP_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
+    user = service.create_user("mfa-user", "MFA User", "Correct-Password-1", "mfa@example.test")
+    user_id = UUID(str(user["id"]))
+
+    enrollment = service.enroll_totp(user_id, "Correct-Password-1")
+    secret = pyotp.parse_uri(enrollment["provisioning_uri"]).secret
+    assert service.totp_status(user_id) == {"enabled": False}
+    assert service._one("SELECT encrypted_secret FROM totp_mfa WHERE user_id = %s", (user_id,))[0] != secret
+
+    with pytest.raises(IamError):
+        service.verify_totp_enrollment(user_id, "000000")
+    assert service.login("mfa-user", "Correct-Password-1")["user_id"] == user["id"]
+
+    service.verify_totp_enrollment(user_id, pyotp.TOTP(secret).now())
+    assert service.totp_status(user_id) == {"enabled": True}
+    with pytest.raises(IamError):
+        service.login("mfa-user", "Correct-Password-1")
+    with pytest.raises(IamError):
+        service.login("mfa-user", "Correct-Password-1", "000000")
+    assert service.login("mfa-user", "Correct-Password-1", pyotp.TOTP(secret).now())["user_id"] == user["id"]
+
+
+def test_totp_disable_requires_password_and_current_code(service: IamService, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify MFA cannot be disabled with an unauthenticated or incomplete recovery path."""
+    monkeypatch.setenv("TOTP_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
+    user = service.create_user("disable-mfa", "Disable MFA", "Correct-Password-1", "disable-mfa@example.test")
+    user_id = UUID(str(user["id"]))
+    secret = pyotp.parse_uri(service.enroll_totp(user_id, "Correct-Password-1")["provisioning_uri"]).secret
+    service.verify_totp_enrollment(user_id, pyotp.TOTP(secret).now())
+
+    with pytest.raises(IamError):
+        service.disable_totp(user_id, "wrong-password", "000000")
+    service.disable_totp(user_id, "Correct-Password-1", pyotp.TOTP(secret).now())
+    assert service.totp_status(user_id) == {"enabled": False}
+    assert all("secret" not in str(event).lower() for event in service.audit_events())
+
+
+def test_totp_tampered_secret_fails_closed(service: IamService, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify a corrupted encrypted secret cannot bypass MFA or expose decryption details."""
+    monkeypatch.setenv("TOTP_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
+    user = service.create_user("tampered-mfa", "Tampered MFA", "Correct-Password-1", "tampered-mfa@example.test")
+    user_id = UUID(str(user["id"]))
+    service.enroll_totp(user_id, "Correct-Password-1")
+    service._execute("UPDATE totp_mfa SET encrypted_secret = %s, enabled = TRUE WHERE user_id = %s", ("tampered", user_id))
+
+    with pytest.raises(IamError) as error:
+        service.login("tampered-mfa", "Correct-Password-1", "123456")
+    assert error.value.status.value == 401
+
+
+def test_totp_failed_attempts_are_temporarily_throttled(service: IamService, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify repeated invalid codes are blocked before unlimited six-digit guessing is possible."""
+    monkeypatch.setenv("TOTP_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
+    user = service.create_user("throttled-mfa", "Throttled MFA", "Correct-Password-1", "throttled-mfa@example.test")
+    user_id = UUID(str(user["id"]))
+    secret = pyotp.parse_uri(service.enroll_totp(user_id, "Correct-Password-1")["provisioning_uri"]).secret
+
+    for _ in range(4):
+        with pytest.raises(IamError):
+            service.verify_totp_enrollment(user_id, "000000")
+    with pytest.raises(IamError) as blocked:
+        service.verify_totp_enrollment(user_id, "000000")
+    assert blocked.value.status.value == 429
+    with pytest.raises(IamError) as still_blocked:
+        service.verify_totp_enrollment(user_id, pyotp.TOTP(secret).now())
+    assert still_blocked.value.status.value == 429
 
 
 def test_security_expired_session_is_rejected(service: IamService) -> None:
@@ -523,3 +679,16 @@ def test_security_denied_authorization_is_audited_without_mutating_state(service
     denied = service.audit_events()[0]
     assert denied["event_type"] == "AUTHORIZATION_DENIED"
     assert denied["result"] == "denied"
+
+
+def test_security_target_authorization_rejects_unknown_application(service: IamService) -> None:
+    """Verify an object identifier is checked before an application operation is allowed."""
+    user = service.create_user("target-user", "Target User", "Correct-Password-1", "target@example.test")
+    permission = service.create_permission("application", "read")
+    role = service.create_role("target-reader")
+    service.assign_role(UUID(str(user["id"])), UUID(str(role["id"])))
+    service.assign_permission(UUID(str(role["id"])), UUID(str(permission["id"])))
+
+    with pytest.raises(IamError) as error:
+        service.authorize(UUID(str(user["id"])), "application", "read", uuid4())
+    assert error.value.status.value == 404
