@@ -453,6 +453,8 @@ class IamService:
             "Demo Reader": ("read",),
             "Demo Operator": ("create", "read", "update", "deploy"),
             "Demo Developer": tuple(permissions),
+            "Demo Auditor": ("read",),
+            "Demo Publisher": ("create", "read", "deploy"),
         }
         for role_name, actions in role_permissions.items():
             role = self._role_id(role_name)
@@ -464,6 +466,8 @@ class IamService:
             ("demo-reader", "Demo Reader", "DemoReaderPassword1", "demo-reader@example.test", "Demo Reader"),
             ("demo-operator", "Demo Operator", "DemoOperatorPassword1", "demo-operator@example.test", "Demo Operator"),
             ("demo-developer", "Demo Developer", "DemoDeveloperPassword1", "demo-developer@example.test", "Demo Developer"),
+            ("demo-auditor", "Demo Auditor", "DemoAuditorPassword1", "demo-auditor@example.test", "Demo Auditor"),
+            ("demo-publisher", "Demo Publisher", "DemoPublisherPassword1", "demo-publisher@example.test", "Demo Publisher"),
         )
         for username, display_name, password, email, role_name in demo_users:
             user = self._one("SELECT id FROM users WHERE username = %s", (username,))
@@ -471,6 +475,18 @@ class IamService:
             role_id = self._role_id(role_name)
             if self._one("SELECT 1 FROM user_roles WHERE user_id = %s AND role_id = %s", (user_id, role_id)) is None:
                 self._relationship("INSERT INTO user_roles VALUES (%s, %s)", (user_id, role_id), "role is already assigned")
+
+        groups = {
+            "Platform Observers": ("demo-reader", "demo-auditor"),
+            "Release Operators": ("demo-operator", "demo-publisher"),
+            "Engineering": ("demo-operator", "demo-developer", "demo-publisher"),
+        }
+        for group_name, usernames in groups.items():
+            group_id = self._group_id(group_name)
+            for username in usernames:
+                user = self._one("SELECT id FROM users WHERE username = %s", (username,))
+                if user is not None and self._one("SELECT 1 FROM user_groups WHERE user_id = %s AND group_id = %s", (user[0], group_id)) is None:
+                    self._relationship("INSERT INTO user_groups VALUES (%s, %s)", (user[0], group_id), "user is already in group")
 
     def _permission_id(self, resource: str, action: str) -> UUID:
         existing = self._one("SELECT id FROM permissions WHERE resource = %s AND action = %s", (resource, action))
@@ -483,6 +499,12 @@ class IamService:
         if existing is not None:
             return UUID(str(existing[0]))
         return UUID(str(self.create_role(name, "Local demonstration role")["id"]))
+
+    def _group_id(self, name: str) -> UUID:
+        existing = self._one("SELECT id FROM groups WHERE name = %s", (name,))
+        if existing is not None:
+            return UUID(str(existing[0]))
+        return UUID(str(self.create_group(name, "Local demonstration group")["id"]))
 
     def authenticate(self, session_id: str | None) -> UUID:
         if not session_id or len(session_id) > 512:

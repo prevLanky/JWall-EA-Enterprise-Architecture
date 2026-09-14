@@ -280,6 +280,17 @@ def test_demo_seed_creates_distinct_application_permissions(service: IamService)
     assert service.check_permission(developer, "application", "delete") is True
 
 
+def test_demo_seed_creates_group_memberships_without_granting_permissions(service: IamService) -> None:
+    """Verify seeded groups provide identity relationships while direct roles control permissions."""
+    service.seed_demo_users()
+    reader = UUID(str(service._one("SELECT id FROM users WHERE username = %s", ("demo-reader",))[0]))
+
+    assert service.user_groups(reader)[0]["name"] == "Platform Observers"
+    assert service.check_permission(reader, "application", "read") is True
+    assert service.check_permission(reader, "application", "update") is False
+    assert service.check_permission(reader, "iam", "manage") is False
+
+
 def test_application_factory_controls_startup_and_health(service: IamService) -> None:
     startup_calls = 0
 
@@ -293,6 +304,18 @@ def test_application_factory_controls_startup_and_health(service: IamService) ->
 
     assert response.json() == {"status": "ok"}
     assert startup_calls == 1
+
+
+def test_browser_login_page_is_available(service: IamService, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify the browser login helper is available without exposing the API schema route."""
+    monkeypatch.setenv("IAM_SEED_DEMO_USERS", "true")
+    with TestClient(create_app(service)) as application_client:
+        response = application_client.get("/login")
+
+    assert response.status_code == 200
+    assert "IAM Platform" in response.text
+    assert "demo-reader" in response.text
+    assert "/login" not in response.text.split("<title>", 1)[0]
 
 
 def test_security_login_returns_opaque_session_and_excludes_secrets_from_audit(service: IamService) -> None:

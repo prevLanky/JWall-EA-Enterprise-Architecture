@@ -31,6 +31,10 @@ python -m pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
+The FastAPI, Starlette, httpx, and AnyIO versions are intentionally pinned together because they
+share the test-client compatibility boundary. Keeping these versions aligned avoids deprecation
+warnings from the framework test client during local and CI test runs.
+
 The API is available at `http://127.0.0.1:8002`. The schema is initialized at startup using
 the SQL in `docs/schema.sql`; there is deliberately no migration framework yet. Docker Compose
 provides PostgreSQL only:
@@ -57,6 +61,11 @@ Login with `POST /auth/login`. Send the returned opaque `session_id` in the `X-S
 header for protected requests. `401` means the session is missing or invalid; `403` means the
 authenticated user lacks the required permission.
 
+For quick browser testing, open [http://127.0.0.1:8002/login](http://127.0.0.1:8002/login).
+The page calls the same login, session, and logout endpoints as the API, keeps the session only in
+browser `sessionStorage`, and shows demo-account buttons during development. It does not replace
+the API authentication flow or store passwords on the server.
+
 ### Local demo users
 
 The development launcher sets `IAM_SEED_DEMO_USERS=true` internally and creates these repeatable
@@ -68,10 +77,23 @@ production startup:
 | `demo-reader` | `DemoReaderPassword1` | Demo Reader | `read` |
 | `demo-operator` | `DemoOperatorPassword1` | Demo Operator | `create`, `read`, `update`, `deploy` |
 | `demo-developer` | `DemoDeveloperPassword1` | Demo Developer | `create`, `read`, `update`, `delete`, `deploy` |
+| `demo-auditor` | `DemoAuditorPassword1` | Demo Auditor | `read` |
+| `demo-publisher` | `DemoPublisherPassword1` | Demo Publisher | `create`, `read`, `deploy` |
 
 Use these accounts to verify `403` authorization behavior against the protected application
 endpoints. These are intentionally predictable dummy credentials for local development only and
 must never be reused outside the local database.
+
+The development seed also creates these identity-only groups:
+
+| Group | Members |
+| --- | --- |
+| `Platform Observers` | `demo-reader`, `demo-auditor` |
+| `Release Operators` | `demo-operator`, `demo-publisher` |
+| `Engineering` | `demo-operator`, `demo-developer`, `demo-publisher` |
+
+Groups do not grant permissions in V1. Effective permissions come from direct role assignments;
+the groups are present so relationship and identity-management endpoints can be exercised.
 
 To mount IAM into another FastAPI application, construct an `IamService` with the host's
 connection factory and include `create_router(service)`. For a standalone application with a
